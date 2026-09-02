@@ -91,9 +91,9 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
 }
 
 export const http = {
-  get: <T>(url: string, params?: Record<string, unknown>) =>
+  get: <T>(url: string, params?: object) =>
     request<T>({ url, method: 'get', params }),
-  post: <T>(url: string, data?: unknown, params?: Record<string, unknown>) =>
+  post: <T>(url: string, data?: unknown, params?: object) =>
     request<T>({ url, method: 'post', data, params }),
   put: <T>(url: string, data?: unknown) => request<T>({ url, method: 'put', data }),
   delete: <T>(url: string) => request<T>({ url, method: 'delete' }),
@@ -111,7 +111,7 @@ export function asPage<T>(data: unknown): { items: T[]; total: number; page: num
     items,
     total: typeof d.total === 'number' ? d.total : items.length,
     page: d.page ?? 1,
-    page_size: d.page_size ?? items.length || 20,
+    page_size: d.page_size ?? (items.length || 20),
   };
 }
 

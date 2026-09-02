@@ -179,7 +179,7 @@ export default function Calls() {
         <Button
           onClick={() => {
             setPage(1);
-            const empty = { range: null, api_key_id: undefined, model: '', status: '', blocked: undefined, category: '' };
+            const empty: FiltersState = { range: null, api_key_id: undefined, model: '', status: '', blocked: undefined, category: '' };
             setFilters(empty);
             setApplied(empty);
           }}

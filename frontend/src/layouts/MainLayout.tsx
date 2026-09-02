@@ -13,8 +13,8 @@ import {
   ProfileOutlined,
   RetweetOutlined,
   SafetyCertificateOutlined,
+  SecurityScanOutlined,
   SettingOutlined,
-  ShieldOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/auth';
@@ -40,7 +40,7 @@ const MENU: MenuItem[] = [
   {
     key: 'group-guard',
     label: '护栏管理',
-    icon: <ShieldOutlined />,
+    icon: <SecurityScanOutlined />,
     children: [
       { key: '/guard/keywords', label: '敏感词', icon: <ProfileOutlined /> },
       { key: '/guard/pii', label: 'PII 规则', icon: <ProfileOutlined /> },

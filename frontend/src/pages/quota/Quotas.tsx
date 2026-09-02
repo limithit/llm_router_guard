@@ -414,7 +414,7 @@ export default function Quotas() {
             tooltip="输入 * 表示作用于全部模型"
             rules={[{ required: true, message: '请输入或选择模型别名' }]}
           >
-            <AutoComplete options={aliasOptions} placeholder="输入模型别名，或 * 表示全部" filterOption={(v, o) => o.value.toLowerCase().includes(v.toLowerCase())} />
+            <AutoComplete options={aliasOptions} placeholder="输入模型别名，或 * 表示全部" filterOption={(v, o) => String(o?.value ?? '').toLowerCase().includes(v.toLowerCase())} />
           </Form.Item>
           <Space size={16} align="start" wrap>
             <Form.Item name="quota_type" label="配额类型" rules={[{ required: true }]}>

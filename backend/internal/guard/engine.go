@@ -33,6 +33,21 @@ func (v Verdict) FindingsJSON() string {
 	return string(b)
 }
 
+// FindingsJSONRaw 将已有的 findings JSON 字符串解析后追加新 findings，再序列化。
+// 解析失败时丢弃旧串，仅序列化新 findings。
+func FindingsJSONRaw(existing string, fs []Finding) string {
+	var merged []Finding
+	if existing != "" {
+		_ = json.Unmarshal([]byte(existing), &merged)
+	}
+	merged = append(merged, fs...)
+	if len(merged) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(merged)
+	return string(b)
+}
+
 // CheckInput 输入双向过滤：命中 block 级规则即拦截；mask 级 PII 就地替换。
 func CheckInput(snap *runtime.Snapshot, text string) (vd Verdict) {
 	vd.Text = text

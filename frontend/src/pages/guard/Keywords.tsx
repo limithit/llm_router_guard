@@ -41,7 +41,7 @@ import {
   labelOf,
 } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
-import type { GuardHit, Keyword, KeywordCategory, MatchMode, RuleAction } from '../../api/types';
+import type { GuardHit, Keyword, KeywordCategory, KeywordInput, MatchMode, RuleAction } from '../../api/types';
 
 interface KeywordFormValues {
   word: string;
