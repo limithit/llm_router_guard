@@ -223,6 +223,28 @@ frontend/src/
   - example .env.template with all variables documented
 ```
 
+## 📋 第四轮迭代待办（用户指定，2026-09-02）
+
+> 以下三项为用户明确要求的下一轮需求，记入待办，尚未实现。
+
+### 1. [P0] SLB：加权轮询分发（去随机化）
+- **现状**：`slb.Pick` 用 `rand.Intn(total)` 做**加权随机**（`internal/slb/slb.go:71`）。权重相等时，三次请求可能都落同一上游（3/27 ≈ 3.7% 概率），体感像"没轮询、总打一家"。已实测确认别名为 `glm5.2` 挂 3 个启用上游（商汤比克/yaoyang/ningyi，weight 均为 1），配置无误，是策略本身导致分布不可预期。
+- **目标**：改为**加权轮询（weighted round-robin）**，按权重顺序循环分发，确定性、可预期、不聚堆。推荐平滑加权轮询（SWRR），无需大锁、单实例语义下内存游标即可。
+- **要点**：保留熔断跳过与故障转移排除（`tried`）；游标按别名维度维护。
+- **涉及**：`internal/slb/slb.go`（Pick 重写为 SWRR + 游标）、`internal/slb/slb_test.go`（随机断言改为轮询序列断言）。
+
+### 2. [P0] API Key：模型限定 + IP 白名单
+- **模型限定**：API Key 可绑定允许的模型别名集合；**默认（未配置）允许所有模型**。网关在解析 alias 后校验该 key 是否被授权访问此 alias，未授权返回 403。
+- **IP 白名单**：API Key 可配置 IP/CIDR 白名单；**默认不启用（允许所有来源）**。启用后校验 `X-Forwarded-For`（取首段）/`RemoteAddr`。
+- **数据模型**：`model.APIKey` 加 `AllowedModelsJSON`（别名数组，空=全部）、`IPAllowlistJSON`（CIDR 数组）、`IPAllowlistEnabled bool`；经热加载进 `Snapshot.APIKeys`。
+- **涉及**：`internal/model/model.go`、`internal/runtime/manager.go`（加载）、`internal/gateway/gateway.go`（AuthMiddleware/Handle 校验）、`internal/admin/apikeys.go` + 前端 `settings/ApiKeys.tsx`（表单）。
+
+### 3. [P1] 审计日志：写入开关（性能）
+- **现状**：调用审计每请求异步入库（`audit.Write` → channel → 200ms 批量 flush）。请求量大时 DB 写入与存储压力大，影响性能。
+- **目标**：增加开关，可关停调用审计写入（**操作审计仍保留，不可关**）。建议细粒度：总开关 + 按"成功/失败/拦截"分类开关 + 采样率（1/N，默认 1=全记）。
+- **数据模型**：`settings.General`（或新增 AuditSettings）加 `CallAuditEnabled bool`（默认 true）、`CallAuditSampling int`（默认 1）、可选 `CallAuditOnlyErrors bool`。
+- **涉及**：`internal/settings`、`internal/gateway/gateway.go`（`writeLog` 前按开关/采样决定是否入队）、`internal/audit/audit.go`、前端设置页。
+
 ## 🔑 关键技术决策记录
 
 1. **配置存储**: 全部业务配置走数据库，不读磁盘 YAML/JSON 文件 (PRD 6.2 明确要求)。
@@ -244,3 +266,4 @@ frontend/src/
 5. ✅ 补充 `quota/quota.go` 单测 — 32 测试全部通过（含 NextReset 周首修复）
 6. ✅ 供应商测试连接假成功修复 + 模型批量导入 + 内置帮助页 + 静态路由 panic 修复
 7. ⏳ 按上述区块 B-D 中的任务推进迭代（X-Request-ID 转发、token 估算、上游健康探测、Prometheus、路由懒加载等）
+8. ⏳ 第四轮用户指定待办（见上方「📋 第四轮迭代待办」）：SLB 加权轮询去随机化；API Key 模型限定 + IP 白名单；审计日志写入开关
