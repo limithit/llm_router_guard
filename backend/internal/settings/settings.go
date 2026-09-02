@@ -20,6 +20,7 @@ type General struct {
 	GuardEnabled          bool   `json:"guard_enabled"`
 	HotReloadSeconds      int    `json:"hot_reload_seconds"`
 	ListenPort            int    `json:"listen_port"`
+	ListenPortNote        string `json:"listen_port_note,omitempty"`
 }
 
 func DefaultGeneral() General {
