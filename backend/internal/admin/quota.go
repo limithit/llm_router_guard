@@ -38,7 +38,7 @@ func (s *Server) listQuotas(c *gin.Context) {
 		}
 		out = append(out, quotaOut{Quota: r, APIKeyLabel: label})
 	}
-	s.okPaged(c, out, int(total), page, size)
+	okPaged(c, out, int(total), page, size)
 }
 
 func (s *Server) createQuota(c *gin.Context) {
@@ -173,7 +173,7 @@ func (s *Server) listRateLimits(c *gin.Context) {
 		}
 		out = append(out, rateLimitOut{RateLimitRule: r, APIKeyLabel: label})
 	}
-	s.okPaged(c, out, int(total), page, size)
+	okPaged(c, out, int(total), page, size)
 }
 
 func (s *Server) createRateLimit(c *gin.Context) {

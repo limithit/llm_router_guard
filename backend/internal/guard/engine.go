@@ -33,6 +33,15 @@ func (v Verdict) FindingsJSON() string {
 	return string(b)
 }
 
+// FindingsJSON 将 findings 列表序列化为 JSON 字符串（空列表返回空串）。
+func FindingsJSON(fs []Finding) string {
+	if len(fs) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(fs)
+	return string(b)
+}
+
 // FindingsJSONRaw 将已有的 findings JSON 字符串解析后追加新 findings，再序列化。
 // 解析失败时丢弃旧串，仅序列化新 findings。
 func FindingsJSONRaw(existing string, fs []Finding) string {

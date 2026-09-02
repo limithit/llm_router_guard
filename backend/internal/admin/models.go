@@ -67,7 +67,7 @@ func (s *Server) listModels(c *gin.Context) {
 		out = append(out, aliasOut{ID: a.ID, Alias: a.Alias, Enabled: a.Enabled, Remark: a.Remark,
 			Upstreams: ups, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
 	}
-	s.okPaged(c, out, int(total), page, size)
+	okPaged(c, out, int(total), page, size)
 }
 
 func (s *Server) createModel(c *gin.Context) {

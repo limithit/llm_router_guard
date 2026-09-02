@@ -33,7 +33,7 @@ func (s *Server) listUsers(c *gin.Context) {
 		}
 		out = append(out, row)
 	}
-	s.okPaged(c, out, int(total), page, size)
+	okPaged(c, out, int(total), page, size)
 }
 
 func (s *Server) unbindUserMfa(c *gin.Context) {

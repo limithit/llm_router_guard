@@ -29,7 +29,7 @@ func (s *Server) listProviders(c *gin.Context) {
 	q.Count(&total)
 	var rows []model.Provider
 	q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&rows)
-	s.okPaged(c, rows, int(total), page, size)
+	okPaged(c, rows, int(total), page, size)
 }
 
 func (s *Server) createProvider(c *gin.Context) {

@@ -19,7 +19,7 @@ func (s *Server) listBackups(c *gin.Context) {
 	s.db.Model(&model.BackupRecord{}).Count(&total)
 	var rows []model.BackupRecord
 	s.db.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&rows)
-	s.okPaged(c, rows, int(total), page, size)
+	okPaged(c, rows, int(total), page, size)
 }
 
 func (s *Server) createBackup(c *gin.Context) {

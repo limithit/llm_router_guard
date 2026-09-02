@@ -1,4 +1,5 @@
-﻿// auth.go 绠＄悊鍚庡彴鐧诲綍 / 涓汉淇℃伅 / 淇敼瀵嗙爜 / MFA 鑷姪缁戝畾锛圧EQ-020~022锛夈€?package admin
+// auth.go 管理后台登录 / 个人信息 / 修改密码 / MFA 自助绑定（REQ-020~022）。
+package admin
 
 import (
 	"net/http"
@@ -14,12 +15,14 @@ import (
 	"llmrouter/internal/settings"
 )
 
-// pendingMFA 瀛樺偍 MFA 浜屾鐧诲綍鐨勪复鏃剁エ鎹紙5 鍒嗛挓鏈夋晥锛夈€?type pendingMFA struct {
+// pendingMFA 存储 MFA 二步登录的临时票据（5 分钟有效）。
+type pendingMFA struct {
 	userID uint
 	expiry time.Time
 }
 
-// pendingSetup 瀛樺偍鑷姪缁戝畾娴佺▼涓敓鎴愮殑瀵嗛挜锛? 鍒嗛挓鏈夋晥锛夈€?type pendingSetup struct {
+// pendingSetup 存储自助绑定流程中生成的密钥（5 分钟有效）。
+type pendingSetup struct {
 	secret string
 	expiry time.Time
 }
@@ -31,7 +34,7 @@ type mfaState struct {
 
 func (s *Server) mfa() *mfaState { return &s.mfaStateInstance }
 
-// ---- 鐧诲綍 ----
+// ---- 登录 ----
 
 func (s *Server) login(c *gin.Context) {
 	var req struct {
@@ -42,30 +45,30 @@ func (s *Server) login(c *gin.Context) {
 		MFAToken     string `json:"mfa_token"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		s.fail(c, http.StatusBadRequest, 40001, "璇锋眰鍙傛暟閿欒")
+		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
 	var u model.AdminUser
 	if err := s.db.Where("username = ?", req.Username).First(&u).Error; err != nil {
-		s.fail(c, http.StatusUnauthorized, 40102, "鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
+		s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
 		return
 	}
 	if u.IsLocked() {
-		s.fail(c, http.StatusForbidden, 40301, "璐︽埛宸茶閿佸畾锛岃绋嶅悗鍐嶈瘯鎴栬仈绯荤鐞嗗憳瑙ｉ攣")
+		s.fail(c, http.StatusForbidden, 40301, "账户已被锁定，请稍后再试或联系管理员解锁")
 		return
 	}
 
 	sec := s.securitySettings()
 
-	// MFA 浜屾楠岃瘉锛堝叏灞€寮€鍏冲紑鍚?涓?鐢ㄦ埛宸茬粦瀹氾級
+	// MFA 二步验证（全局开关开启 且 用户已绑定）
 	if req.MFAToken != "" {
 		v, ok := s.mfa().login.LoadAndDelete(req.MFAToken)
-		if !ok || !v.(pendingMFA).expiry.After(time.Now()) {
-			s.fail(c, http.StatusUnauthorized, 40103, "MFA 绁ㄦ嵁宸插け鏁堬紝璇烽噸鏂扮櫥褰?)
+		if !ok || v.(pendingMFA).expiry.Before(time.Now()) {
+			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据已失效，请重新登录")
 			return
 		}
 		if v.(pendingMFA).userID != u.ID {
-			s.fail(c, http.StatusUnauthorized, 40103, "MFA 绁ㄦ嵁涓庣敤鎴蜂笉鍖归厤")
+			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据与用户不匹配")
 			return
 		}
 		ok2 := false
@@ -80,24 +83,24 @@ func (s *Server) login(c *gin.Context) {
 		}
 		if !ok2 {
 			s.onMFAFail(&u)
-			s.fail(c, http.StatusUnauthorized, 40103, "鍔ㄦ€侀獙璇佺爜鎴栨仮澶嶇爜閿欒")
+			s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 			return
 		}
 		s.issueLogin(c, &u, sec)
 		return
 	}
 
-	// 涓€绾э細瀵嗙爜鏍￠獙
+	// 一级：密码校验
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
 		s.onMFAFail(&u)
-		s.fail(c, http.StatusUnauthorized, 40102, "鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
+		s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
 		return
 	}
 	u.FailedLogins = 0
 	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
-		Updates(map[string]any{"failed_logins": 0})
+		Update("failed_logins", 0)
 
-	// 浜岀骇锛歁FA锛堝凡缁戝畾涓斿叏灞€寮€鍚級
+	// 二级：MFA（已绑定且全局开启）
 	if sec.MFAEnabled && u.MFAEnabled {
 		if req.TotpCode == "" && req.RecoveryCode == "" {
 			token := crypto.RandomHex(16)
@@ -117,7 +120,7 @@ func (s *Server) login(c *gin.Context) {
 		}
 		if !ok2 {
 			s.onMFAFail(&u)
-			s.fail(c, http.StatusUnauthorized, 40103, "鍔ㄦ€侀獙璇佺爜鎴栨仮澶嶇爜閿欒")
+			s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 			return
 		}
 	}
@@ -125,7 +128,8 @@ func (s *Server) login(c *gin.Context) {
 	s.issueLogin(c, &u, sec)
 }
 
-// onMFAFail 杩炵画 5 娆″け璐ラ攣瀹氳处鎴凤紙REQ-022 鈶★級銆?func (s *Server) onMFAFail(u *model.AdminUser) {
+// onMFAFail 连续 5 次失败锁定账户（REQ-022 ②）。
+func (s *Server) onMFAFail(u *model.AdminUser) {
 	u.FailedLogins++
 	updates := map[string]any{"failed_logins": u.FailedLogins}
 	if u.FailedLogins >= 5 {
@@ -138,7 +142,7 @@ func (s *Server) login(c *gin.Context) {
 func (s *Server) issueLogin(c *gin.Context, u *model.AdminUser, sec settings.Security) {
 	token, err := auth.Issue(s.secret, u.ID, u.Username)
 	if err != nil {
-		s.fail(c, http.StatusInternalServerError, 50001, "绛惧彂 Token 澶辫触")
+		s.fail(c, http.StatusInternalServerError, 50001, "签发 Token 失败")
 		return
 	}
 	now := time.Now()
@@ -156,7 +160,7 @@ func (s *Server) me(c *gin.Context) {
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
-		s.fail(c, http.StatusNotFound, 40401, "鐢ㄦ埛涓嶅瓨鍦?)
+		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
 	s.ok(c, gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled,
@@ -169,39 +173,41 @@ func (s *Server) logout(c *gin.Context) {
 }
 
 func (s *Server) changePassword(c *gin.Context) {
-	var req struct{ Old, New string }
-	req.New = ""
-	if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
-		s.fail(c, http.StatusBadRequest, 40001, "璇锋眰鍙傛暟閿欒")
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.NewPassword == "" {
+		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	if len(req.New) < 8 {
-		s.fail(c, http.StatusBadRequest, 40001, "鏂板瘑鐮佽嚦灏?8 浣?)
+	if len(req.NewPassword) < 8 {
+		s.fail(c, http.StatusBadRequest, 40001, "新密码至少 8 位")
 		return
 	}
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
-		s.fail(c, http.StatusNotFound, 40401, "鐢ㄦ埛涓嶅瓨鍦?)
+		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Old)); err != nil {
-		s.fail(c, http.StatusUnauthorized, 40102, "鍘熷瘑鐮侀敊璇?)
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
+		s.fail(c, http.StatusUnauthorized, 40102, "原密码错误")
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
+	hash, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Update("password_hash", string(hash))
 	s.recordOp(c, "update", "auth", "password", nil, nil)
 	s.ok(c, nil)
 }
 
-// ---- 璐︽埛 MFA 鑷姪缁戝畾 (REQ-021) ----
+// ---- 账户 MFA 自助绑定 (REQ-021) ----
 
 func (s *Server) mfaStatus(c *gin.Context) {
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
-		s.fail(c, http.StatusNotFound, 40401, "鐢ㄦ埛涓嶅瓨鍦?)
+		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
 	s.ok(c, gin.H{"enabled": u.MFAEnabled, "bound_at": u.MFABoundAt,
@@ -212,21 +218,21 @@ func (s *Server) mfaSetup(c *gin.Context) {
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
-		s.fail(c, http.StatusNotFound, 40401, "鐢ㄦ埛涓嶅瓨鍦?)
+		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
 	if u.MFAEnabled {
-		s.fail(c, http.StatusConflict, 40901, "宸茬粦瀹?MFA锛屾棤闇€閲嶅缁戝畾")
+		s.fail(c, http.StatusConflict, 40901, "已绑定 MFA，无需重复绑定")
 		return
 	}
 	secret, url, err := newTOTPSecret(u.Username)
 	if err != nil {
-		s.fail(c, http.StatusInternalServerError, 50001, "鐢熸垚 TOTP 瀵嗛挜澶辫触")
+		s.fail(c, http.StatusInternalServerError, 50001, "生成 TOTP 密钥失败")
 		return
 	}
 	qr, err := qrPngBase64(url)
 	if err != nil {
-		s.fail(c, http.StatusInternalServerError, 50001, "鐢熸垚浜岀淮鐮佸け璐?)
+		s.fail(c, http.StatusInternalServerError, 50001, "生成二维码失败")
 		return
 	}
 	s.mfa().setup.Store(uid, pendingSetup{secret: secret, expiry: time.Now().Add(5 * time.Minute)})
@@ -236,18 +242,18 @@ func (s *Server) mfaSetup(c *gin.Context) {
 func (s *Server) mfaEnable(c *gin.Context) {
 	var req struct{ Code string }
 	if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
-		s.fail(c, http.StatusBadRequest, 40001, "璇疯緭鍏ュ姩鎬侀獙璇佺爜")
+		s.fail(c, http.StatusBadRequest, 40001, "请输入动态验证码")
 		return
 	}
 	uid := userIDOf(c)
 	v, ok := s.mfa().setup.LoadAndDelete(uid)
-	if !ok || !v.(pendingSetup).expiry.After(time.Now()) {
-		s.fail(c, http.StatusBadRequest, 40001, "缁戝畾娴佺▼宸茶繃鏈燂紝璇烽噸鏂板紑濮?)
+	if !ok || v.(pendingSetup).expiry.Before(time.Now()) {
+		s.fail(c, http.StatusBadRequest, 40001, "绑定流程已过期，请重新开始")
 		return
 	}
 	secret := v.(pendingSetup).secret
 	if !validateTOTP(req.Code, secret) {
-		s.fail(c, http.StatusUnauthorized, 40103, "鍔ㄦ€侀獙璇佺爜閿欒")
+		s.fail(c, http.StatusUnauthorized, 40103, "动态验证码错误")
 		return
 	}
 	sec := s.securitySettings()
@@ -264,17 +270,17 @@ func (s *Server) mfaEnable(c *gin.Context) {
 func (s *Server) mfaDisable(c *gin.Context) {
 	var req struct{ Code string }
 	if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
-		s.fail(c, http.StatusBadRequest, 40001, "璇疯緭鍏ュ姩鎬侀獙璇佺爜鎴栨仮澶嶇爜")
+		s.fail(c, http.StatusBadRequest, 40001, "请输入动态验证码或恢复码")
 		return
 	}
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
-		s.fail(c, http.StatusNotFound, 40401, "鐢ㄦ埛涓嶅瓨鍦?)
+		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
 	if !u.MFAEnabled {
-		s.fail(c, http.StatusConflict, 40901, "灏氭湭缁戝畾 MFA")
+		s.fail(c, http.StatusConflict, 40901, "尚未绑定 MFA")
 		return
 	}
 	ok := false
@@ -285,7 +291,7 @@ func (s *Server) mfaDisable(c *gin.Context) {
 		s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Update("recovery_codes_json", next)
 	}
 	if !ok {
-		s.fail(c, http.StatusUnauthorized, 40103, "鍔ㄦ€侀獙璇佺爜鎴栨仮澶嶇爜閿欒")
+		s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 		return
 	}
 	s.db.Model(&model.AdminUser{}).Where("id = ?", uid).Updates(map[string]any{

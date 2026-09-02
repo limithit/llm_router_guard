@@ -66,8 +66,8 @@ func (s *Server) fail(c *gin.Context, httpStatus, code int, msg string) {
 	c.JSON(httpStatus, gin.H{"code": code, "message": msg, "data": nil})
 }
 
-func (s *Server) okPaged[T any](c *gin.Context, items []T, total, page, pageSize int) {
-	s.ok(c, gin.H{"items": items, "total": total, "page": page, "page_size": pageSize})
+func okPaged[T any](c *gin.Context, items []T, total, page, pageSize int) {
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": gin.H{"items": items, "total": total, "page": page, "page_size": pageSize}})
 }
 
 func paramInt(c *gin.Context, key string, def int) int {
