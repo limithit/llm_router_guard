@@ -48,6 +48,8 @@ import type {
   PiiRuleTemplate,
   PiiTestResult,
   Provider,
+  ProviderImportInput,
+  ProviderImportResult,
   ProviderInput,
   ProviderTestResult,
   Quota,
@@ -93,6 +95,8 @@ export const providerApi = {
   update: (id: number, body: ProviderInput) => http.put<Provider>(`/providers/${id}`, body),
   remove: (id: number) => http.delete<null>(`/providers/${id}`),
   test: (id: number) => http.post<ProviderTestResult>(`/providers/${id}/test`),
+  importModels: (id: number, body: ProviderImportInput) =>
+    http.post<ProviderImportResult>(`/providers/${id}/import-models`, body),
 };
 
 // ============ 4. 模型别名 (REQ-006) ============

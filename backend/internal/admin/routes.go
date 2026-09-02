@@ -4,6 +4,8 @@ package admin
 import (
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -42,6 +44,7 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	api.PUT("/providers/:id", s.AuthMiddleware(), s.updateProvider)
 	api.DELETE("/providers/:id", s.AuthMiddleware(), s.deleteProvider)
 	api.POST("/providers/:id/test", s.AuthMiddleware(), s.testProvider)
+	api.POST("/providers/:id/import-models", s.AuthMiddleware(), s.importProviderModels)
 
 	api.GET("/models", s.AuthMiddleware(), s.listModels)
 	api.POST("/models", s.AuthMiddleware(), s.createModel)
@@ -127,7 +130,10 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	_ = os.DevNull
 }
 
-// MountStatic 将前端构建产物挂载为静态文件；未找到则保留 gin 默认响应。
+// MountStatic 将前端构建产物挂载为静态资源并支持 SPA 前端路由。
+// 不能使用 r.Static("/", ...) 注册 catch-all /*filepath：它会与已注册的
+// /api、/v1 等顶层路径段冲突（gin radix tree 不允许 catch-all 与命名段共存），
+// 启动时直接 panic。改用 NoRoute 兜底：命中真实文件则直接返回，其余回退到 index.html。
 func (s *Server) MountStatic(r *gin.Engine, dist string) {
 	if dist == "" {
 		if info, err := os.Stat("web/dist"); err == nil && info.IsDir() {
@@ -136,8 +142,35 @@ func (s *Server) MountStatic(r *gin.Engine, dist string) {
 			dist = "../frontend/dist"
 		}
 	}
-	if dist != "" {
-		r.Static("/", dist)
-		r.Static("/assets", dist+"/assets")
+	if dist == "" {
+		return
 	}
+
+	indexPath := filepath.Join(dist, "index.html")
+	fs := http.Dir(dist)
+	fileServer := http.FileServer(fs)
+
+	r.NoRoute(func(c *gin.Context) {
+		p := c.Request.URL.Path
+
+		// API / 网关 / 健康检查路径不应落到前端，返回 JSON 404。
+		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/v1/") || p == "/healthz" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		// 命中真实静态文件则直接返回；目录交由 SPA 回退处理。
+		if f, err := fs.Open(p); err == nil {
+			if fi, statErr := f.Stat(); statErr == nil && !fi.IsDir() {
+				f.Close()
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+			f.Close()
+		}
+
+		// SPA 回退：未命中的路径交给前端路由处理。
+		c.Header("Cache-Control", "no-cache")
+		c.File(indexPath)
+	})
 }

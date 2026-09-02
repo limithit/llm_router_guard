@@ -26,6 +26,7 @@ import ConfigStatus from './pages/settings/ConfigStatus';
 import RuntimeStatus from './pages/settings/RuntimeStatus';
 import Backup from './pages/settings/Backup';
 import AccountSecurity from './pages/account/AccountSecurity';
+import Help from './pages/Help';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -86,6 +87,8 @@ export default function App() {
                 <Route path="/settings/backup" element={<Backup />} />
                 {/* 个人账户 */}
                 <Route path="/account/security" element={<AccountSecurity />} />
+                {/* 使用帮助 */}
+                <Route path="/help" element={<Help />} />
               </Route>
               <Route path="/404" element={<NotFound />} />
               <Route path="*" element={<NotFound />} />

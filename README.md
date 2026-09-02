@@ -13,6 +13,8 @@
 
 ### 本地开发
 
+项目为**单进程模型**：Go 后端是唯一运行时进程，在同一个端口（默认 :8080）上同时提供管理 API、网关端点（`/v1/*`）和前端 SPA 静态资源——前端无需独立服务器，也不需要 Nginx。
+
 ```bash
 # 1. 编译后端
 cd backend && go mod tidy && go build -o ../bin/server ./cmd/server
@@ -20,10 +22,14 @@ cd backend && go mod tidy && go build -o ../bin/server ./cmd/server
 # 2. 构建前端
 cd frontend && npm install && npm run build
 
-# 3. 运行服务端（自动注入 dist 目录下的静态资源）
+# 3. 运行服务端（运行时从 web/dist 或 ../frontend/dist 读取前端产物，按请求实时读盘）
 cd ..
 ./bin/server          # 默认 :8080，SQLite 数据库 gateway.db
 ```
+
+前端重新构建后刷新浏览器即可看到最新界面，无需重启服务。
+
+> 前端热更新开发：另开终端 `cd frontend && npm run dev`，Vite 在 :5173 提供热更新，并通过 `vite.config.ts` 将 `/api`、`/v1` 代理到后端 :8080；此时访问 http://localhost:5173 即可。这是唯一会出现两个进程的场景，且仅用于开发。
 
 环境变量控制关键行为：
 
@@ -109,19 +115,23 @@ frontend/                         # React 前端
 
 ## 构建与部署
 
+部署形态为**单进程**：一个 Go 二进制即整个运行时，在 :8080 同时对外提供管理 API、网关端点和前端 SPA，前端不需要 Nginx 或独立 Node 服务。
+
 ### 单二进制部署（推荐）
 
 ```bash
-# 先构建前端
+# 1. 构建前端，产物拷入后端 web/dist
 cd frontend && npm run build && cp -r dist ../backend/web/dist
 
-# 然后编译后端（go:embed 会将 web/dist 内嵌到最终二进制中）
+# 2. 编译后端（前端资源为运行时磁盘读取、非内嵌；web/dist 须随二进制一同部署）
 cd ../backend && go build -ldflags="-s -w" -o llm-router-guard ./cmd/server
 
-./llm-router-guard --help
-# PORT=8080 DB_TYPE=postgresql DB_DSN="postgres://user:pass@host/gateway" \
-# MASTER_KEY="your-strong-secret" ADMIN_PASSWORD="change-me" ./llm-router-guard
+# 3. 运行（工作目录需含二进制与 web/dist；或用 FRONTEND_DIST 指向前端产物绝对路径）
+PORT=8080 DB_TYPE=postgresql DB_DSN="postgres://user:pass@host/gateway" \
+MASTER_KEY="your-strong-secret" ADMIN_PASSWORD="change-me" ./llm-router-guard
 ```
+
+> 部署目录结构：`llm-router-guard`（二进制）+ `web/dist/`（前端产物）。后端**未通过 `go:embed` 内嵌前端**，运行时从磁盘读取，因此 `web/dist` 不可缺失，否则访问 `/` 返回 404。
 
 ### Docker Compose
 

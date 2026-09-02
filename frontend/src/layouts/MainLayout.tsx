@@ -11,6 +11,7 @@ import {
   LogoutOutlined,
   LockOutlined,
   ProfileOutlined,
+  QuestionCircleOutlined,
   RetweetOutlined,
   SafetyCertificateOutlined,
   SecurityScanOutlined,
@@ -80,6 +81,7 @@ const MENU: MenuItem[] = [
       { key: '/settings/backup', label: '数据备份', icon: <DatabaseOutlined /> },
     ],
   },
+  { key: '/help', label: '使用帮助', icon: <QuestionCircleOutlined /> },
 ];
 
 /** 页面路由 → 展示名称（面包屑，PRD 4.2） */
@@ -104,6 +106,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/settings/status': '状态监控',
   '/settings/backup': '数据备份',
   '/account/security': '个人安全设置',
+  '/help': '使用帮助',
 };
 
 export default function MainLayout() {

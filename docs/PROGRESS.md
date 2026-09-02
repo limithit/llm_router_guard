@@ -1,6 +1,23 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-02（第二轮迭代）
+最后更新：2026-09-02（第三轮迭代：供应商测试连接修复 + 模型批量导入 + 内置帮助页）
+
+## 📝 本轮迭代变更（第三轮，2026-09-02）
+
+### 后端
+- **供应商测试连接修复**（`providers.go`）：原任何 4xx(<500) 都误报"连接成功"，错误端点也提示成功。改为 `GET /v1/models` 真实验证（OpenAI + Anthropic 通用），仅 HTTP 200 且响应含 `data`/`models` 列表才算成功；401/403 报认证失败、404 报端点不存在、其余状态原样返回。成功时返回模型 ID 列表。
+- **模型批量导入**（新 `POST /providers/:id/import-models`）：测试返回的模型列表让用户在供应商页勾选，批量创建为模型别名（别名=上游模型名，单上游指向本供应商，weight=1）；已存在别名自动跳过并在 `skipped_names` 返回。避免手输。
+- **配额周重置 bug 修复**（`quota.go:NextReset`）：原按"周日"重置（Go `Weekday` 周日=0），改为以"周一"为周首（ISO/中国习惯），与测试预期一致。
+- **静态资源路由 panic 修复**（`routes.go:MountStatic`）：`r.Static("/",...)` 的 catch-all `/*filepath` 与已注册的 `/api`、`/v1` 冲突导致启动 panic。改用 `NoRoute` 兜底 + SPA `index.html` 回退，且对 `/api`、`/v1` 路径返回 JSON 404。
+- **测试补全**：新增 `slb_test.go`(22)、`quota_test.go`(32)、`admin/providers_test.go`(1)；全后端 `go test ./...` 绿。
+
+### 前端
+- **供应商页模型导入弹窗**（`Providers.tsx`）：测试连接成功且返回模型时弹出勾选表格（默认全选），确认后调导入接口并刷新模型别名列表；测试按钮 loading 改为按行独立（不再全行共享）。
+- **内置帮助页**（新 `pages/Help.tsx` + 路由）：写入网关对外服务地址、三协议端点、鉴权方式（`Authorization: Bearer` / `x-api-key`）、`model` 字段填别名等使用说明，避免误以为是前后端各自启动的项目。
+- `tsc --noEmit` + `vite build` 零错误。
+
+### 文档
+- **README**：修正"本地开发"与"构建与部署"章节——明确单进程/单端口模型；删除错误的 `go:embed` 声称（实际为运行时磁盘读取，`web/dist` 须随二进制部署）；补充前端热更新开发说明（Vite :5173 代理 :8080）。
 
 ## 📊 当前状态
 
@@ -17,8 +34,9 @@
   - 输出过滤策略（block/replace/log）
   - 护栏禁用、空白输入、Unicode 处理等边界场景
   - 全链路集成测试
-- ⏳ **SLB 负载均衡+熔断器** — 测试文件待编写（下一步）
-- ⏳ **配额+限流引擎** — 测试文件待编写
+- ✅ **SLB 负载均衡+熔断器** `go test ./internal/slb` — 22 个测试全部通过（加权选择 + 熔断器 + 故障转移）
+- ✅ **配额+限流引擎** `go test ./internal/quota` — 32 个测试全部通过（NextReset 周/月计算 + 配额检查/消费/惰性重置 + 限流窗口；含"周一为周首"修复）
+- ✅ **管理 API（供应商）** `go test ./internal/admin` — 测试连接 + 模型列表解析单测通过
 
 ### 完成度概览
 
@@ -130,10 +148,10 @@ frontend/src/
 - **问题**: 当上游未返回 token 用量时，使用 `rune_count / 2` 粗略估算。对中文字符串偏大，对英文偏小。
 - **建议**: 可引入一个轻量 tokenizer (如 tiktoken-go)，或至少按字符集区分估算系数：CJK `/2`, ASCII `/4`, mixed `/3`。当前足够满足"仅在有上游数据时不估算"的兜底场景。
 
-#### 3. [P3] Provider 测试连接——Anthropic base_url 拼接逻辑复杂
-- **位置**: `internal/admin/providers.go:testProvider()`, line 148-156
-- **问题**: Anthropic 协议的 URL 处理有冗余的 `TrimSuffix/HasSuffix` 嵌套判断。
-- **建议**: 统一用 `strings.TrimSuffix(baseURL, "/v1") + "/v1/messages"` 简化；或直接让用户在 BaseURL 字段末尾加上 `/v1`（与 OpenAI 约定一致）。
+#### 3. ✅ 已修复 — Provider 测试连接假成功 + Anthropic base_url 拼接复杂
+- **位置**: `internal/admin/providers.go:testProvider()`
+- **原问题**: ① 任何 4xx(<500) 都被判为"连接成功"，错误端点也提示成功；② Anthropic URL 拼接冗余。
+- **修复**: 统一改用 `GET /v1/models`（OpenAI + Anthropic 通用），严格判据仅 HTTP 200 且响应含 `data`/`models` 列表才算成功；401/403 报认证失败、404 报端点不存在、其余状态原样返回。成功时返回模型 ID 列表供前端勾选导入。base_url 归一化与 `adapter.BuildUpstreamRequest` 一致。
 
 #### 4. [P3] Audit Logger——首次写入库可能阻塞启动
 - **位置**: `internal/audit/audit.go:writerLoop()`
@@ -170,8 +188,8 @@ frontend/src/
 |--------|------|-----------|------|------|
 | **P0** | 完善 API Client 类型安全 | 小 | 确认 endpoints.ts 中 `pageParams` 类型兼容问题已彻底解决 | ✅ 已完成（tsc --noEmit 零错误） |
 | **P0** | 护栏引擎单元测试 | 中等 | `guard/engine.go` 核心逻辑单测覆盖 | ✅ 已完成（19 测试全部通过） |
-| **P0** | SLB 负载均衡单元测试 | 中等 | `slb/slb.go` 加权选择 + 熔断器逻辑单测 | ⏳ 进行中 |
-| **P0** | 配额限流单元测试 | 中等 | `quota/quota.go` 速率限制 + 配额检查单测 | ⏳ 待办 |
+| **P0** | SLB 负载均衡单元测试 | 中等 | `slb/slb.go` 加权选择 + 熔断器逻辑单测 | ✅ 已完成（22 测试通过） |
+| **P0** | 配额限流单元测试 | 中等 | `quota/quota.go` 速率限制 + 配额检查单测 | ✅ 已完成（32 测试通过；含 NextReset 周首修复） |
 | **P1** | 增加 WebAssembly tokenizer | 中等 | 集成 `tiktoken-go` 用于准确的 Token 用量估算 (gateway.go → estimateUsage) | ⏳ 待办 |
 | **P1** | 上游健康检查定时任务 | 小 | 每隔 N 分钟主动探测各 provider 连通性，更新 SLB health map | ⏳ 待办 |
 | **P1** | 前端路由懒加载 | 小 | `React.lazy` + `Suspense` 按路由 chunk 拆分，减少首屏体积 | ⏳ 待办 |
@@ -221,7 +239,8 @@ frontend/src/
 **下一步行动**: 
 1. ✅ 检查 `endpoints.ts` 中 PageParams 类型兼容性问题是否已被 client.ts 修复消除 — tsc --noEmit 零错误
 2. ✅ 运行 `tsc --noEmit` 确认前端无 TS 错误 — 通过
-3. ✅ 补充 `guard/engine.go` 单测 — 19 测试全部通过
-4. ⏳ 补充 `slb/slb.go` 单测 — 进行中（已读源码，正在编写测试）
-5. ⏳ 补充 `quota/quota.go` 单测 — 待办
-6. 按上述区块 B-D 中的任务推进迭代
+3. ✅ 补充 `guard/engine.go` 单测 — 18 测试 + 基准全部通过
+4. ✅ 补充 `slb/slb.go` 单测 — 22 测试全部通过
+5. ✅ 补充 `quota/quota.go` 单测 — 32 测试全部通过（含 NextReset 周首修复）
+6. ✅ 供应商测试连接假成功修复 + 模型批量导入 + 内置帮助页 + 静态路由 panic 修复
+7. ⏳ 按上述区块 B-D 中的任务推进迭代（X-Request-ID 转发、token 估算、上游健康探测、Prometheus、路由懒加载等）

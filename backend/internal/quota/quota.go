@@ -96,7 +96,10 @@ func NewQuotaManager(gdb *gorm.DB) *QuotaManager { return &QuotaManager{db: gdb}
 func NextReset(period string, from time.Time) time.Time {
 	switch period {
 	case "week":
-		d := (7 - int(from.Weekday())) % 7
+		// 以周一为一周起点（ISO/中国习惯）：把 Go 的 Weekday（周日=0..周六=6）
+		// 转成"距周一的天数"（周一=0..周日=6），再算到下个周一。
+		m := (int(from.Weekday()) + 6) % 7
+		d := (7 - m) % 7
 		if d == 0 {
 			d = 7
 		}

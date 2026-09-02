@@ -16,3 +16,4 @@ frontend/package-lock.json
 .vscode/
 .DS_Store
 Thumbs.db
+/backend/web/dist/

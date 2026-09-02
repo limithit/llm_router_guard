@@ -184,6 +184,18 @@ export interface ProviderTestResult {
   ok: boolean;
   latency_ms: number;
   message: string;
+  models?: string[];
+}
+
+export interface ProviderImportInput {
+  models: string[];
+  enabled: boolean;
+}
+
+export interface ProviderImportResult {
+  created: number;
+  skipped: number;
+  skipped_names: string[];
 }
 
 // ============ 模型别名 (REQ-006) ============

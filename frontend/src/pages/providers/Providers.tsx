@@ -45,9 +45,14 @@ export default function Providers() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [form] = Form.useForm<ProviderFormValues>();
-  const [testResult, setTestResult] = useState<{ loading: boolean; latency?: number; message?: string }>({
-    loading: false,
-  });
+  const [testingId, setTestingId] = useState<number | null>(null);
+
+  // 测试连接返回模型列表后，弹窗让用户勾选导入为模型别名
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importProvider, setImportProvider] = useState<Provider | null>(null);
+  const [modelList, setModelList] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['providers', page, pageSize, searchText],
@@ -92,17 +97,45 @@ export default function Providers() {
   };
 
   const handleTest = async (record: Provider) => {
-    setTestResult({ loading: true });
+    setTestingId(record.id);
     try {
       const res = await providerApi.test(record.id);
-      setTestResult({ loading: false, latency: res.latency_ms, message: res.message });
       if (res.ok) {
-        message.success(`连接成功，延迟 ${res.latency_ms} ms — ${res.message}`);
+        const extra = res.models?.length ? `，返回 ${res.models.length} 个模型` : '';
+        message.success(`连接成功，延迟 ${res.latency_ms} ms${extra}`);
+        // 返回了模型列表 → 弹窗勾选导入为模型别名
+        if (res.models && res.models.length) {
+          setImportProvider(record);
+          setModelList(res.models);
+          setSelectedModels(res.models); // 默认全选
+          setImportModalOpen(true);
+        }
       } else {
         message.error(`连接失败 — ${res.message}`);
       }
     } catch {
-      setTestResult({ loading: false });
+      // 拦截器已 toast
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importProvider || selectedModels.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await providerApi.importModels(importProvider.id, {
+        models: selectedModels,
+        enabled: true,
+      });
+      const skippedNote = res.skipped ? `，跳过 ${res.skipped} 个已存在` : '';
+      message.success(`已导入 ${res.created} 个模型别名${skippedNote}`);
+      setImportModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+    } catch {
+      // 拦截器已 toast
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -232,7 +265,7 @@ export default function Providers() {
             fixed: 'right',
             render: (_: unknown, record: Provider) => (
               <Space>
-                <Button size="small" loading={testResult.loading} onClick={() => handleTest(record)}>
+                <Button size="small" loading={testingId === record.id} onClick={() => handleTest(record)}>
                   测试连接
                 </Button>
                 <Button size="small" onClick={() => openEdit(record)}>
@@ -314,6 +347,35 @@ export default function Providers() {
             <Input.TextArea rows={2} placeholder="备注（可选）" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`导入模型别名 — ${importProvider?.name ?? ''}`}
+        open={importModalOpen}
+        confirmLoading={importing}
+        okText={`导入选中（${selectedModels.length}）`}
+        okButtonProps={{ disabled: selectedModels.length === 0 }}
+        cancelText="取消"
+        onOk={handleImport}
+        onCancel={() => setImportModalOpen(false)}
+        width={560}
+        destroyOnClose
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          勾选要启用的模型，将作为「模型别名」导入（别名 = 上游模型名，单上游指向本供应商）。已存在的别名会自动跳过。
+        </Typography.Paragraph>
+        <Table
+          size="small"
+          rowKey="name"
+          dataSource={modelList.map((m) => ({ name: m }))}
+          columns={[{ title: '模型', dataIndex: 'name' }]}
+          pagination={false}
+          scroll={{ y: 360 }}
+          rowSelection={{
+            selectedRowKeys: selectedModels,
+            onChange: (keys) => setSelectedModels(keys as string[]),
+          }}
+        />
       </Modal>
     </PageContainer>
   );
