@@ -1,12 +1,24 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-02
+最后更新：2026-09-02（第二轮迭代）
 
 ## 📊 当前状态
 
 ### 编译状态
 - ✅ **后端** `go build ./...` — 零错误
 - ✅ **前端** `npm run build` — 零错误（dist/index.html + 1.59MB JS / gzip 500KB）
+- ✅ **前端** `tsc --noEmit` — 零错误（类型安全验证通过）
+
+### 测试状态
+- ✅ **护栏引擎** `go test ./internal/guard -v` — 19 个测试全部通过（含基准测试）
+  - 关键词匹配（contains/exact/regex 三种模式）
+  - PII 检测与脱敏（手机号/邮箱/身份证号）
+  - 注入检测（中英文模式）
+  - 输出过滤策略（block/replace/log）
+  - 护栏禁用、空白输入、Unicode 处理等边界场景
+  - 全链路集成测试
+- ⏳ **SLB 负载均衡+熔断器** — 测试文件待编写（下一步）
+- ⏳ **配额+限流引擎** — 测试文件待编写
 
 ### 完成度概览
 
@@ -154,33 +166,38 @@ frontend/src/
 
 ### 优先级排序
 
-| 优先级 | 任务 | 预计工作量 | 描述 |
-|--------|------|-----------|------|
-| **P0** | 完善 API Client 类型安全 | 小 | 确认 endpoints.ts 中 `pageParams` 类型兼容问题已彻底解决 |
-| **P0** | 单元测试补全 | 中等 | `guard/engine.go`, `slb/slb.go`, `quota/quota.go` 的核心逻辑需要单测覆盖 |
-| **P1** | 增加 WebAssembly tokenizer | 中等 | 集成 `tiktoken-go` 用于准确的 Token 用量估算 (gateway.go → estimateUsage) |
-| **P1** | 上游健康检查定时任务 | 小 | 每隔 N 分钟主动探测各 provider 连通性，更新 SLB health map |
-| **P1** | 前端路由懒加载 | 小 | `React.lazy` + `Suspense` 按路由 chunk 拆分，减少首屏体积 |
-| **P2** | 支持 WebSocket 实时审计推送 | 中等 | 替代定时轮询 ConfigStatus 和 Status 页面的 refetchInterval |
-| **P2** | 增加 Prometheus Metrics 出口 | 中等 | 暴露 /metrics 端点供 Grafana 采集 |
-| **P2** | 提供示例 .env 和 Docker Compose PostgreSQL | 小 | 提供开箱即用的多 DB 部署模板 |
+| 优先级 | 任务 | 预计工作量 | 描述 | 状态 |
+|--------|------|-----------|------|------|
+| **P0** | 完善 API Client 类型安全 | 小 | 确认 endpoints.ts 中 `pageParams` 类型兼容问题已彻底解决 | ✅ 已完成（tsc --noEmit 零错误） |
+| **P0** | 护栏引擎单元测试 | 中等 | `guard/engine.go` 核心逻辑单测覆盖 | ✅ 已完成（19 测试全部通过） |
+| **P0** | SLB 负载均衡单元测试 | 中等 | `slb/slb.go` 加权选择 + 熔断器逻辑单测 | ⏳ 进行中 |
+| **P0** | 配额限流单元测试 | 中等 | `quota/quota.go` 速率限制 + 配额检查单测 | ⏳ 待办 |
+| **P1** | 增加 WebAssembly tokenizer | 中等 | 集成 `tiktoken-go` 用于准确的 Token 用量估算 (gateway.go → estimateUsage) | ⏳ 待办 |
+| **P1** | 上游健康检查定时任务 | 小 | 每隔 N 分钟主动探测各 provider 连通性，更新 SLB health map | ⏳ 待办 |
+| **P1** | 前端路由懒加载 | 小 | `React.lazy` + `Suspense` 按路由 chunk 拆分，减少首屏体积 | ⏳ 待办 |
+| **P2** | 支持 WebSocket 实时审计推送 | 中等 | 替代定时轮询 ConfigStatus 和 Status 页面的 refetchInterval | ⏳ 待办 |
+| **P2** | 增加 Prometheus Metrics 出口 | 中等 | 暴露 /metrics 端点供 Grafana 采集 | ⏳ 待办 |
+| **P2** | 提供示例 .env 和 Docker Compose PostgreSQL | 小 | 提供开箱即用的多 DB 部署模板 | ⏳ 待办 |
 
 ### 可独立开展的工作块
 
 ```
-区块 A (后端):
-  - unit tests for guard engine (keyword/pii/injection/output)
+区块 A (后端测试) — 进行中 ✅:
+  ✅ unit tests for guard engine (keyword/pii/injection/output) — 19 tests PASS
+  ⏳ unit tests for slb balancer (weighted pick, circuit breaker, failover)
+  ⏳ unit tests for quota/rate-limit (fixed window, lazy reset, webhook alert)
+
+区块 B (后端增强):
   - add X-Request-ID forwarding to upstream
   - improve token estimation (tiktoken-go Wasm)
-
-区块 B (后端):
   - periodic upstream health probe cron job
   - Prometheus metrics exporter (/metrics endpoint)
 
-区块 C (前端):
-  - fix remaining ts errors if any
+区块 C (前端优化):
+  ✅ fix remaining ts errors — tsc --noEmit passes with 0 errors
   - lazy-load route chunks (React.lazy)
   - add Skeleton loaders to all data tables
+  - consume listen_port_note field from API instead of hardcoded text
 
 区块 D (DevOps):
   - GitHub Actions CI/CD pipeline
@@ -197,11 +214,14 @@ frontend/src/
 5. **密码哈希**: bcrypt (golang.org/x/crypto), cost=10。恢复码存 sha256 哈希。
 6. **API Key**: 明文存储于内存（Provider 解密后复用），数据库只存 encrypted version (AES-GCM)。
 7. **前端状态管理**: Zustand（轻量级，不引入 Redux complexity）+ TanStack Query（服务端缓存）。
+8. **测试策略**: 测试文件与源文件同目录 (`_test.go`)，使用标准 `testing` 包 + 表驱动测试 + 基准测试。Snapshot 手工构建，不依赖真实 DB。
 
 ---
 
 **下一步行动**: 
-1. 检查 `endpoints.ts` 中 PageParams 类型兼容性问题是否已被 client.ts 修复消除
-2. 运行 `tsc --noEmit` 确认前端无 TS 错误
-3. 补充 `guard/engine.go` 和 `slb/slb.go` 的单测
-4. 按上述区块 A-D 中的任务推进迭代
+1. ✅ 检查 `endpoints.ts` 中 PageParams 类型兼容性问题是否已被 client.ts 修复消除 — tsc --noEmit 零错误
+2. ✅ 运行 `tsc --noEmit` 确认前端无 TS 错误 — 通过
+3. ✅ 补充 `guard/engine.go` 单测 — 19 测试全部通过
+4. ⏳ 补充 `slb/slb.go` 单测 — 进行中（已读源码，正在编写测试）
+5. ⏳ 补充 `quota/quota.go` 单测 — 待办
+6. 按上述区块 B-D 中的任务推进迭代
