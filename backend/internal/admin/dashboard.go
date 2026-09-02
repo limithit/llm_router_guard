@@ -3,37 +3,32 @@
 package admin
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/gormdb" // 占位：无此包，下方直接手写
-	_ = "gorm.io/gorm"
 
 	"llmrouter/internal/model"
 )
 
-// ---- 占位说明：dashboard 用原生 SQL 聚合，不依赖 gormdb 扩展 ----
+// ---- 概览 Dashboard (REQ-016) ----
 
 func (s *Server) dashboard(c *gin.Context) {
 	snap := s.mgr.Get()
 	now := time.Now()
 	today := now.Truncate(24 * time.Hour)
 
-	type countRes struct {
-		Calls   int64
-		Success int64
-		Blocked int64
-		Errors  int64
-		Latency int64
-	}
-	var todayRes countRes
-	s.db.Model(&model.CallLog{}).
-		Where("created_at >= ?", today).
-		Select("COUNT(*) as calls, SUM(status='ok') as success, SUM(status='blocked') as blocked, SUM(status='error') as errors, COALESCE(SUM(latency_ms),0) as latency").
-		Row().Scan(&todayRes.Calls, &todayRes.Success, &todayRes.Blocked, &todayRes.Errors, &todayRes.Latency)
+	var todayCalls, todaySuccess, todayBlocked, todayErrors int64
+	var todayLat int64
+	s.db.Model(&model.CallLog{}).Where("created_at >= ?", today).Count(&todayCalls)
+	s.db.Model(&model.CallLog{}).Where("created_at >= ? AND status = ?", today, "ok").Count(&todaySuccess)
+	s.db.Model(&model.CallLog{}).Where("created_at >= ? AND status = ?", today, "blocked").Count(&todayBlocked)
+	s.db.Model(&model.CallLog{}).Where("created_at >= ? AND status = ?", today, "error").Count(&todayErrors)
+	s.db.Model(&model.CallLog{}).Where("created_at >= ? AND status = ?", today, "ok").
+		Select("COALESCE(SUM(latency_ms),0)").Row().Scan(&todayLat)
 	avgLat := int64(0)
-	if todayRes.Success > 0 {
-		avgLat = todayRes.Latency / todayRes.Success
+	if todaySuccess > 0 {
+		avgLat = todayLat / todaySuccess
 	}
 
 	// 7 天趋势
@@ -57,10 +52,6 @@ func (s *Server) dashboard(c *gin.Context) {
 		Select("model_alias as model, COUNT(*) as calls").
 		Where("created_at >= ?", today.AddDate(0, 0, -7)).
 		Group("model_alias").Order("calls DESC").Limit(10).Scan(&top)
-	topOut := make([]gin.H, 0, len(top))
-	for _, t := range top {
-		topOut = append(topOut, gin.H{"model": t.Model, "calls": t.Calls})
-	}
 
 	// 拦截类别分布（7 天）
 	type catRank struct {
@@ -72,10 +63,6 @@ func (s *Server) dashboard(c *gin.Context) {
 		Select("block_category as category, COUNT(*) as count").
 		Where("created_at >= ? AND blocked = ?", today.AddDate(0, 0, -7), true).
 		Group("block_category").Order("count DESC").Scan(&cats)
-	catsOut := make([]gin.H, 0, len(cats))
-	for _, ct := range cats {
-		catsOut = append(catsOut, gin.H{"category": ct.Category, "count": ct.Count})
-	}
 
 	// 配额使用率
 	var quotas []model.Quota
@@ -101,11 +88,23 @@ func (s *Server) dashboard(c *gin.Context) {
 
 	s.ok(c, gin.H{
 		"today": gin.H{
-			"calls": todayRes.Calls, "success": todayRes.Success,
-			"blocked": todayRes.Blocked, "errors": todayRes.Errors, "avg_latency_ms": avgLat},
+			"calls": todayCalls, "success": todaySuccess,
+			"blocked": todayBlocked, "errors": todayErrors, "avg_latency_ms": avgLat},
 		"trend_7d":        trend,
-		"top_models":      topOut,
-		"block_categories": catsOut,
+		"top_models": func() []gin.H {
+			out := make([]gin.H, 0, len(top))
+			for _, t := range top {
+				out = append(out, gin.H{"model": t.Model, "calls": t.Calls})
+			}
+			return out
+		}(),
+		"block_categories": func() []gin.H {
+			out := make([]gin.H, 0, len(cats))
+			for _, ct := range cats {
+				out = append(out, gin.H{"category": ct.Category, "count": ct.Count})
+			}
+			return out
+		}(),
 		"upstream_health": upstreams,
 		"quota_usage":     quotaUsage,
 		"system": gin.H{"version": "1.0.0", "uptime_seconds": int64(s.mx.Uptime().Seconds()),
@@ -134,8 +133,8 @@ func (s *Server) status(c *gin.Context) {
 		"version": "1.0.0",
 		"memory_alloc_kb": ms.Alloc / 1024, "cpu_percent": 0.0,
 		"goroutines": runtime.NumGoroutine(), "open_connections": s.mx.Conns(),
-		"upstreams":   ups,
-		"qps_by_model": s.mx.QPS(),
+		"upstreams":     ups,
+		"qps_by_model":  s.mx.QPS(),
 		"recent_errors": recent,
 		"config_status": gin.H{
 			"version": s.mgr.Get().Version, "last_loaded_at": s.mgr.Get().LoadedAt, "status": s.mgr.Get().Status},

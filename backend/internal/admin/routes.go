@@ -1,0 +1,143 @@
+// routes.go 注册网关端点 + 管理 API + 前端静态资源。
+package admin
+
+import (
+	"net/http"
+	"os"
+
+	"github.com/gin-gonic/gin"
+
+	"llmrouter/internal/adapter"
+	"llmrouter/internal/gateway"
+)
+
+// Register 在 gin 实例上注册所有路由。
+func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
+	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+
+	// 网关端点（REQ-017）
+	gw := r.Group("/v1")
+	gw.Use(gws.AuthMiddleware())
+	gw.POST("/chat/completions", gws.Handle(adapter.ProtoOpenAIChat))
+	gw.POST("/responses", gws.Handle(adapter.ProtoOpenAIResponses))
+	gw.POST("/messages", gws.Handle(adapter.ProtoAnthropic))
+
+	// 管理 API
+	api := r.Group("/api/admin/v1")
+	api.POST("/auth/login", s.login)
+	api.POST("/auth/logout", s.AuthMiddleware(), s.logout)
+	api.GET("/auth/me", s.AuthMiddleware(), s.me)
+	api.PUT("/auth/password", s.AuthMiddleware(), s.changePassword)
+
+	// 账户 MFA
+	api.POST("/account/mfa/setup", s.AuthMiddleware(), s.mfaSetup)
+	api.POST("/account/mfa/enable", s.AuthMiddleware(), s.mfaEnable)
+	api.POST("/account/mfa/disable", s.AuthMiddleware(), s.mfaDisable)
+	api.GET("/account/mfa/status", s.AuthMiddleware(), s.mfaStatus)
+
+	api.GET("/dashboard", s.AuthMiddleware(), s.dashboard)
+
+	api.GET("/providers", s.AuthMiddleware(), s.listProviders)
+	api.POST("/providers", s.AuthMiddleware(), s.createProvider)
+	api.PUT("/providers/:id", s.AuthMiddleware(), s.updateProvider)
+	api.DELETE("/providers/:id", s.AuthMiddleware(), s.deleteProvider)
+	api.POST("/providers/:id/test", s.AuthMiddleware(), s.testProvider)
+
+	api.GET("/models", s.AuthMiddleware(), s.listModels)
+	api.POST("/models", s.AuthMiddleware(), s.createModel)
+	api.PUT("/models/:id", s.AuthMiddleware(), s.updateModel)
+	api.DELETE("/models/:id", s.AuthMiddleware(), s.deleteModel)
+	api.GET("/models/:id/stats", s.AuthMiddleware(), s.modelStats)
+
+	api.GET("/failover", s.AuthMiddleware(), s.getFailover)
+	api.PUT("/failover", s.AuthMiddleware(), s.saveFailover)
+
+	api.GET("/guard/keywords", s.AuthMiddleware(), s.listKeywords)
+	api.POST("/guard/keywords", s.AuthMiddleware(), s.createKeyword)
+	api.PUT("/guard/keywords/:id", s.AuthMiddleware(), s.updateKeyword)
+	api.DELETE("/guard/keywords/:id", s.AuthMiddleware(), s.deleteKeyword)
+	api.POST("/guard/keywords/batch", s.AuthMiddleware(), s.batchKeywords)
+	api.POST("/guard/keywords/import", s.AuthMiddleware(), s.importKeywords)
+	api.GET("/guard/keywords/export", s.AuthMiddleware(), s.exportKeywords)
+	api.POST("/guard/keywords/test", s.AuthMiddleware(), s.testKeywords)
+
+	api.GET("/guard/pii-rules", s.AuthMiddleware(), s.listPiiRules)
+	api.POST("/guard/pii-rules", s.AuthMiddleware(), s.createPiiRule)
+	api.PUT("/guard/pii-rules/:id", s.AuthMiddleware(), s.updatePiiRule)
+	api.DELETE("/guard/pii-rules/:id", s.AuthMiddleware(), s.deletePiiRule)
+	api.GET("/guard/pii-rules/templates", s.AuthMiddleware(), s.piiTemplates)
+	api.POST("/guard/pii-rules/test", s.AuthMiddleware(), s.testPii)
+
+	api.GET("/guard/injection-rules", s.AuthMiddleware(), s.listInjectionRules)
+	api.POST("/guard/injection-rules", s.AuthMiddleware(), s.createInjectionRule)
+	api.PUT("/guard/injection-rules/:id", s.AuthMiddleware(), s.updateInjectionRule)
+	api.DELETE("/guard/injection-rules/:id", s.AuthMiddleware(), s.deleteInjectionRule)
+	api.GET("/guard/injection-rules/templates", s.AuthMiddleware(), s.injectionTemplates)
+
+	api.GET("/guard/output", s.AuthMiddleware(), s.getOutput)
+	api.PUT("/guard/output", s.AuthMiddleware(), s.saveOutput)
+
+	api.GET("/quotas", s.AuthMiddleware(), s.listQuotas)
+	api.POST("/quotas", s.AuthMiddleware(), s.createQuota)
+	api.PUT("/quotas/:id", s.AuthMiddleware(), s.updateQuota)
+	api.DELETE("/quotas/:id", s.AuthMiddleware(), s.deleteQuota)
+	api.POST("/quotas/:id/reset", s.AuthMiddleware(), s.resetQuota)
+	api.POST("/quotas/batch", s.AuthMiddleware(), s.batchQuotas)
+
+	api.GET("/rate-limits", s.AuthMiddleware(), s.listRateLimits)
+	api.POST("/rate-limits", s.AuthMiddleware(), s.createRateLimit)
+	api.PUT("/rate-limits/:id", s.AuthMiddleware(), s.updateRateLimit)
+	api.DELETE("/rate-limits/:id", s.AuthMiddleware(), s.deleteRateLimit)
+
+	api.GET("/quota-alerts", s.AuthMiddleware(), s.getQuotaAlerts)
+	api.PUT("/quota-alerts", s.AuthMiddleware(), s.saveQuotaAlerts)
+
+	api.GET("/audit/calls", s.AuthMiddleware(), s.listCallLogs)
+	api.GET("/audit/calls/:request_id", s.AuthMiddleware(), s.callLogDetail)
+	api.GET("/audit/calls/export", s.AuthMiddleware(), s.exportCallLogs)
+	api.GET("/audit/operations", s.AuthMiddleware(), s.listOpLogs)
+	api.GET("/audit/operations/export", s.AuthMiddleware(), s.exportOpLogs)
+
+	api.GET("/settings", s.AuthMiddleware(), s.getGeneral)
+	api.PUT("/settings", s.AuthMiddleware(), s.saveGeneral)
+	api.GET("/settings/security", s.AuthMiddleware(), s.getSecurity)
+	api.PUT("/settings/security", s.AuthMiddleware(), s.saveSecurity)
+	api.GET("/apikeys", s.AuthMiddleware(), s.listApiKeys)
+	api.POST("/apikeys", s.AuthMiddleware(), s.createApiKey)
+	api.PUT("/apikeys/:id", s.AuthMiddleware(), s.updateApiKey)
+	api.DELETE("/apikeys/:id", s.AuthMiddleware(), s.deleteApiKey)
+
+	api.GET("/users", s.AuthMiddleware(), s.listUsers)
+	api.POST("/users/:id/unbind-mfa", s.AuthMiddleware(), s.unbindUserMfa)
+	api.POST("/users/:id/unlock", s.AuthMiddleware(), s.unlockUser)
+
+	api.GET("/config-status", s.AuthMiddleware(), s.configStatus)
+	api.POST("/config/reload", s.AuthMiddleware(), s.reloadConfig)
+	api.POST("/config/rollback", s.AuthMiddleware(), s.rollbackConfig)
+	api.GET("/config/export", s.AuthMiddleware(), s.exportConfig)
+
+	api.GET("/status", s.AuthMiddleware(), s.status)
+
+	api.GET("/backups", s.AuthMiddleware(), s.listBackups)
+	api.POST("/backups", s.AuthMiddleware(), s.createBackup)
+	api.GET("/backups/:id/download", s.AuthMiddleware(), s.downloadBackup)
+	api.POST("/backups/restore", s.AuthMiddleware(), s.restoreBackup)
+	api.DELETE("/backups/:id", s.AuthMiddleware(), s.deleteBackup)
+
+	_ = os.DevNull
+}
+
+// MountStatic 将前端构建产物挂载为静态文件；未找到则保留 gin 默认响应。
+func (s *Server) MountStatic(r *gin.Engine, dist string) {
+	if dist == "" {
+		if info, err := os.Stat("web/dist"); err == nil && info.IsDir() {
+			dist = "web/dist"
+		} else if info, err := os.Stat("../frontend/dist"); err == nil && info.IsDir() {
+			dist = "../frontend/dist"
+		}
+	}
+	if dist != "" {
+		r.Static("/", dist)
+		r.Static("/assets", dist+"/assets")
+	}
+}
