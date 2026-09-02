@@ -1,0 +1,18 @@
+# Go binary
+bin/
+*.exe
+
+# Data files
+gateway.db*
+data/
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
+frontend/package-lock.json
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
