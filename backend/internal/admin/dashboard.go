@@ -108,7 +108,7 @@ func (s *Server) dashboard(c *gin.Context) {
 		"upstream_health": upstreams,
 		"quota_usage":     quotaUsage,
 		"system": gin.H{"version": "1.0.0", "uptime_seconds": int64(s.mx.Uptime().Seconds()),
-			"config_status": s.mgr.Get().Status, "go_version": "go1.24"},
+			"config_status": s.mgr.Status, "go_version": "go1.24"},
 	})
 }
 
@@ -137,6 +137,6 @@ func (s *Server) status(c *gin.Context) {
 		"qps_by_model":  s.mx.QPS(),
 		"recent_errors": recent,
 		"config_status": gin.H{
-			"version": s.mgr.Get().Version, "last_loaded_at": s.mgr.Get().LoadedAt, "status": s.mgr.Get().Status},
+			"version": s.mgr.Get().Version, "last_loaded_at": s.mgr.Get().LoadedAt, "status": s.mgr.Status},
 	})
 }

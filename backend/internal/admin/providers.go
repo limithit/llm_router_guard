@@ -11,7 +11,6 @@ import (
 
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/model"
-	"llmrouter/internal/runtime"
 )
 
 type providerOut struct {
@@ -145,7 +144,7 @@ func (s *Server) testProvider(c *gin.Context) {
 	var ok bool
 	var msg string
 	switch p.Protocol {
-	case runtime.ProtoAnthropic:
+	case "anthropic":
 		base := strings.TrimSuffix(strings.TrimRight(p.BaseURL, "/"), "/v1")
 		if !strings.HasSuffix(base, "/v1") {
 			base = p.BaseURL

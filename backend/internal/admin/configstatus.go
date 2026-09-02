@@ -3,14 +3,11 @@ package admin
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"llmrouter/internal/model"
-	"llmrouter/internal/runtime"
 )
 
 func (s *Server) configStatus(c *gin.Context) {
@@ -44,7 +41,6 @@ func (s *Server) configStatus(c *gin.Context) {
 
 func (s *Server) reloadConfig(c *gin.Context) {
 	s.mgr.Bump()
-	// Bump 递增 DB counter 并触发重载事件；下面同步等待一次 ReloadIfChanged 结果
 	if _, err := s.mgr.ReloadIfChanged("manual"); err != nil {
 		s.fail(c, http.StatusInternalServerError, 50001, "重载失败: "+err.Error())
 		return

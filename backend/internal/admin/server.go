@@ -15,7 +15,6 @@ import (
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/metrics"
 	"llmrouter/internal/model"
-	"llmrouter/internal/quota"
 	"llmrouter/internal/runtime"
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
@@ -94,7 +93,7 @@ func parsePage(c *gin.Context) (int, int) {
 // operator / ip：JWT 中间件写入 context；操作审计统一落库（REQ-003）。
 func (s *Server) recordOp(c *gin.Context, action, module, target string, before, after any) {
 	audit.LogOp(s.db, operatorOf(c), action, module, target, before, after, clientIP(c),
-		s.mgr.Get().Status == "ok")
+		s.mgr.Status == "ok")
 }
 
 func operatorOf(c *gin.Context) string {

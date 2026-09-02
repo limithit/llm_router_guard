@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"llmrouter/internal/admin"
 	"llmrouter/internal/audit"

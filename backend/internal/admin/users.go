@@ -2,8 +2,6 @@
 package admin
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"llmrouter/internal/model"
