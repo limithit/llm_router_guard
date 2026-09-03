@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Switch,
+  Typography,
 } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
@@ -122,6 +123,11 @@ export default function GeneralSettings() {
           label="仅记录失败/拦截"
           valuePropName="checked"
           tooltip="开启后成功调用不写审计，仅记录错误与被护栏拦截的调用。"
+          extra={
+            <Typography.Text type="warning" style={{ fontSize: 12 }}>
+              开启后成功调用不入审计，Token 用量列与用量统计会缺失；如需降量请改用「成功调用采样」。
+            </Typography.Text>
+          }
         >
           <Switch />
         </Form.Item>
