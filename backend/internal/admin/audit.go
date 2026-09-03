@@ -14,18 +14,26 @@ import (
 	"llmrouter/internal/model"
 )
 
+// parseTimeQ 解析查询参数中的时间，并统一归一化到服务器本地时区。
+//
+// 为什么必须归一化：SQLite 把 datetime 列存为文本（本地时区墙钟，如
+// "2026-09-03 14:39:47.791308+08:00"），比较按字典序进行。前端传的是 UTC
+// ISO 串（"…Z"），若按 UTC 时区绑定（"…+00:00"），墙钟部分与库存值相差
+// 时区偏移（如 8 小时），导致 `created_at <= end` 把最近 8 小时的记录全部
+// 排除——成功日志明明存在，Token 统计却“看不到”。归一化到 time.Local 后，
+// 绑定串与库存串同为本地墙钟，字典序比较才正确。MySQL/Postgres 为真实时间
+// 类型，此归一化无副作用。
 func parseTimeQ(v string) (time.Time, bool) {
 	if v == "" {
 		return time.Time{}, false
 	}
 	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t, true
+		return t.In(time.Local), true // 带时区（如前端 UTC "Z"）→ 换算到服务器本地时区
 	}
-	if t, err := time.Parse("2006-01-02 15:04:05", v); err == nil {
-		return t, true
-	}
-	if t, err := time.Parse("2006-01-02", v); err == nil {
-		return t, true
+	for _, f := range []string{"2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.ParseInLocation(f, v, time.Local); err == nil {
+			return t, true // 不带时区 → 按服务器本地时区解释
+		}
 	}
 	return time.Time{}, false
 }

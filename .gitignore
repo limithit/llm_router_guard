@@ -17,3 +17,6 @@ frontend/package-lock.json
 .DS_Store
 Thumbs.db
 /backend/web/dist/
+
+# 本机 Go 构建缓存（沙箱内 GOCACHE 指向工作区时使用）
+.gocache/

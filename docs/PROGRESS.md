@@ -1,6 +1,31 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-02（第六轮：API Key Token 用量统计看板 + 流式输出护栏短输出兜底修复）
+最后更新：2026-09-03（第七轮：修复 Token 统计"成功日志有记录但用量不计数"的时区根因）
+
+##  本轮迭代变更（第七轮）
+
+### 修复：Token 用量统计在 SQLite 下"成功日志存在但不计数"
+- **现象**：调用审计里有成功日志（含 token 值），但 Token 用量看板统计不到刚产生的调用；后端默认时间范围（近 30 天）能看到数据，前端选任何时间范围（今天/近 7 天/自定义，均为 `dayjs().toISOString()` 的 UTC `Z` 串）就查不到今天的记录。
+- **根因**（SQLite 文本时间比较 + 时区偏移）：
+  - SQLite 的 `created_at`（`datetime` 声明 → NUMERIC 亲和）实际以**文本**存储，内容为**服务器本地墙钟**（如 `2026-09-03 14:39:47.791308+08:00`，空格分隔）；范围过滤按**字典序**比较。
+  - 查询参数 `time.Time` 经 `driver.Valuer` 同样序列化为空格分隔文本，但**偏移量跟随该时间的 Location**：前端 UTC `Z` 参数绑定成 `+00:00` 文本，墙钟部分与库存值相差 8 小时。
+  - 结果：`created_at <= end` 把**最近 8 小时**的记录全部排除（`created_at >= start` 同时会多纳入前 8 小时）——用户"刚刚"的成功调用恰好落在被排除窗口内，看起来就是"日志有记录但 token 没统计"。
+  - 用真实 DB + 真实服务复现：同一 24h 窗口，后端本地参数 29 条全中，前端 UTC 参数只剩 4 条（今天的 25 条全被排除）。
+- **修复**：
+  - `admin/audit.go` `parseTimeQ`：解析结果统一归一化到服务器本地时区——RFC3339（带时区，前端 `Z`）→ `t.In(time.Local)`；不带时区的格式 → `time.ParseInLocation(..., time.Local)` 按本地墙钟解释。一次修复 4 个调用点（调用审计列表/操作审计列表/Token 统计/CSV 导出过滤）。
+  - `admin/tokenstats.go` `dateBucketExpr`：SQLite 分桶加 `'localtime'` 修饰符，按本地日历日/小时分桶（此前 `strftime` 默认输出 UTC 桶，与 MySQL `DATE_FORMAT`/PG `to_char` 的会话本地时区行为不一致）。
+  - MySQL/Postgres 为真实时间类型，驱动做正确的瞬间比较，不受此 bug 影响；归一化对两者无副作用。
+- **测试**：
+  - 新增 `TestTokenStats_FrontendUTCTimeRange`（模拟前端 UTC `Z` 参数：窗口内记录必计、窗口外/未来记录必排除）——已验证**旧实现下该测试失败**（只统计到 25h 前那条，复现用户症状）。
+  - 新增 `TestParseTimeQ_LocalNormalization`（带时区瞬间不变/不带时区按本地/日期=本地午夜/空与非法输入）。
+- **端到端验证**（真实服务 + mock 上游）：建 provider→模型别名→API Key，经网关发非流式（上游 usage 42/17）+ 流式（末块 usage 11/5）各一次，前端 UTC 参数下 token-stats 增量 **+2 calls / +75 tokens**，与预期完全一致；两条调用日志均 `status=ok` 且 token 值正确。
+- **踩坑记录**：
+  - **SQLite datetime 列是文本比较，时区偏移 = 窗口平移**：库存文本带本地偏移、参数文本带 UTC 偏移时，字典序比较让时间窗整体偏移一个时区差（+08:00 部署为 8 小时）。排查时先用 `hex(substr(created_at,1,20))` 看真实存储字节，再对同瞬间不同偏移的参数做 `<=` 探针矩阵，才能定位到"同偏移可比、跨偏移错乱"。
+  - **GORM 读 datetime 列 Scan 到 string 会渲染成 RFC3339（T 格式）**，与真实存储字节（空格格式）不同——看 `typeof()` + `hex()` 才不被误导。
+  - **复制 SQLite 库必须连 `-wal`/`-shm` 一起**，否则未 checkpoint 的数据全丢（本次 E2E 首次复现只拷了主文件，29 行只剩 15 行）。
+
+### 残留限制（记录在案）
+- SQLite 路径的时间比较依赖"库存文本与参数文本同偏移"。当前全部写入来自 `time.Now()`（服务器本地），修复后参数也归一化到本地，一致。若**部署机时区变更**（或 DST 时区），历史行与新参数偏移不一致会出现类似偏移，需要一次性把存量 `created_at` 文本重写到新时区（或升级为 UTC 规范存储 + 迁移）。MySQL/Postgres 无此问题。
 
 ##  本轮迭代变更（第六轮）
 
@@ -56,15 +81,15 @@
   | `internal/guard` | 32 | engine_test.go (450行) | 关键词 contains/exact/regex、PII 检测+脱敏、注入检测、输出过滤 block/replace/log、护栏禁用、Unicode、全链路集成、MaskForLog、FindingsJSON |
   | `internal/slb` | 22 | slb_test.go (502行) | 加权选择(SWRR)、权重分布统计、熔断器开/半开/恢复、故障转移全循环、PickIgnoringCircuit、HealthList、并发安全 |
   | `internal/quota` | 32 | quota_test.go (590行) | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 |
-  | `internal/admin` | 13 | providers_test.go (111行) + tokenstats_test.go (340行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV） |
+  | `internal/admin` | 15 | providers_test.go (111行) + tokenstats_test.go (426行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV + 前端 UTC 时间范围回归 + parseTimeQ 时区归一化） |
   | `internal/gateway` | 5 | gateway_test.go (180行) | 流式输出护栏：短输出兜底检测 / 阈值检测 / 正常输出不误拦截 + estimateUsage 回退与保留 |
   | `internal/tokens` | 5 | tokens_test.go (70行) | Count 精确编码 / Estimate 启发式回退 / 空串边界 |
-  | **合计** | **107** | **7 文件** | — |
+  | **合计** | **109** | **7 文件** | — |
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：`46da2b9 fix(gateway): add final output guard check for short streaming responses`
-- 工作区：干净
+- 最新提交：`9d4bbc7 docs: how to switch DB between sqlite / mysql / postgres`
+- 工作区：第七轮变更待提交（`admin/audit.go`、`admin/tokenstats.go`、`admin/tokenstats_test.go`、`.gitignore`、`docs/PROGRESS.md`）
 
 ## 📝 已完成迭代历史
 
@@ -115,7 +140,7 @@ backend/                                # Go 后端 (33 源文件 + 4 测试文�
         ├── guard.go / quota.go / audit.go
         ├── backup.go / configstatus.go / status.go / routes.go
 
-backend/internal/*/  *_test.go           # 4 测试文件 (1,653 行, 92 断言)
+backend/internal/*/  *_test.go           # 7 测试文件 (2,329 行, 109 断言)
 
 frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 ├── api/ (client.ts, types.ts, endpoints.ts)
@@ -137,6 +162,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 1 | P1 | `gateway/gateway.go` | request_id 未作为 `X-Request-ID` header 传给上游 | `forward()` 中生成 UUID 并设置 header |
 | 2 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
 | 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
+| 4 | P2 | SQLite 时间过滤（第七轮残留） | `created_at` 文本比较依赖库存/参数同偏移；**部署机换时区或 DST** 时存量行需一次性重写 | 长期：UTC 规范存储 + 数据迁移；短期：部署文档注明 |
 
 ### 前端
 
@@ -200,5 +226,6 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 1. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
 2. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
 3. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
-4. ⏳ P1 #2: Token 估算精度提升（tiktoken-go 集成）
+4. ✅ P1 #2: Token 估算精度提升（tiktoken-go 集成）— 已完成（第六轮）
+5. ⏳ 提交第七轮变更并（可选）为 Token 统计时区修复补一个 `X-Request-ID` 转发之外的回归冒烟
 5. 后续按 P2/Minor/DevOps 推进

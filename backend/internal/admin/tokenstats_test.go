@@ -333,6 +333,88 @@ func TestExportTokenStats_CSV(t *testing.T) {
 	}
 }
 
+// TestTokenStats_FrontendUTCTimeRange 回归：前端 RangePicker 用 dayjs.toISOString()
+// 传 UTC（"…Z"）时间。历史 bug：UTC 参数绑定成 "+00:00" 文本，与 SQLite 库存的
+// 本地墙钟（"+08:00"）做字典序比较，窗口整体偏移一个时区差，最近 8 小时的
+// 成功日志被 `created_at <= end` 排除 —— 日志有记录但 Token 统计为 0。
+// 修复后：parseTimeQ 归一化到服务器本地时区，UTC 参数与库存值可比。
+func TestTokenStats_FrontendUTCTimeRange(t *testing.T) {
+	s := newTestServer(t)
+	keyA := s.seedAPIKey(t, "team-a")
+
+	now := time.Now()
+	// 5 分钟前的记录：在 24h 窗口内，必须被统计
+	s.seedCallLog(t, keyA, "team-a", "gpt-4o", now.Add(-5*time.Minute), 100, 100)
+	// 25 小时前的记录：在 24h 窗口外，必须被排除（同时防止“窗口失效全匹配”）
+	s.seedCallLog(t, keyA, "team-a", "gpt-4o", now.Add(-25*time.Hour), 7, 3)
+	// 未来的记录：同样必须被排除
+	s.seedCallLog(t, keyA, "team-a", "gpt-4o", now.Add(30*time.Hour), 10, 10)
+
+	// 模拟前端 dayjs().toISOString() 的 UTC 毫秒格式
+	start := now.Add(-24 * time.Hour).UTC().Format("2006-01-02T15:04:05.000Z")
+	end := now.UTC().Format("2006-01-02T15:04:05.000Z")
+	resp := callTokenStats(t, s, "?start="+urlEncode(start)+"&end="+urlEncode(end))
+
+	if resp.Code != 0 {
+		t.Fatalf("code = %d, want 0", resp.Code)
+	}
+	sum := resp.Data.Summary
+	if sum.Calls != 1 {
+		t.Errorf("calls = %d, want 1 (only the recent row); summary=%+v", sum.Calls, sum)
+	}
+	if sum.TotalTokens != 200 {
+		t.Errorf("total_tokens = %d, want 200; summary=%+v", sum.TotalTokens, sum)
+	}
+}
+
+// TestParseTimeQ_LocalNormalization parseTimeQ 必须把解析结果归一化到服务器
+// 本地时区：带时区输入保持同一瞬间，不带时区输入按本地墙钟解释。
+func TestParseTimeQ_LocalNormalization(t *testing.T) {
+	// 1) RFC3339 UTC（前端风格）：瞬间不变，Location 变为本地
+	in := time.Date(2026, 9, 3, 7, 51, 0, 0, time.UTC)
+	got, ok := parseTimeQ(in.Format("2006-01-02T15:04:05.000Z"))
+	if !ok {
+		t.Fatalf("parseTimeQ(%q) = not ok", in.Format("2006-01-02T15:04:05.000Z"))
+	}
+	if !got.Equal(in) {
+		t.Errorf("instant changed: %v != %v", got, in)
+	}
+	if got.Location() != time.Local {
+		t.Errorf("location = %v, want %v", got.Location(), time.Local)
+	}
+
+	// 2) 不带时区：按本地墙钟解释（而非旧行为 UTC）
+	local := time.Date(2026, 9, 3, 14, 0, 0, 0, time.Local)
+	got2, ok2 := parseTimeQ(local.Format("2006-01-02 15:04:05"))
+	if !ok2 {
+		t.Fatalf("parseTimeQ(%q) = not ok", local.Format("2006-01-02 15:04:05"))
+	}
+	if !got2.Equal(local) {
+		t.Errorf("zoneless wall-clock changed: %v != %v", got2, local)
+	}
+	if got2.Location() != time.Local {
+		t.Errorf("location = %v, want %v", got2.Location(), time.Local)
+	}
+
+	// 3) 日期：本地午夜
+	day := time.Date(2026, 9, 3, 0, 0, 0, 0, time.Local)
+	got3, ok3 := parseTimeQ("2026-09-03")
+	if !ok3 {
+		t.Fatalf("parseTimeQ(2026-09-03) = not ok")
+	}
+	if !got3.Equal(day) {
+		t.Errorf("date wall-clock changed: %v != %v", got3, day)
+	}
+
+	// 4) 空/非法输入
+	if _, ok := parseTimeQ(""); ok {
+		t.Error("empty input should not parse")
+	}
+	if _, ok := parseTimeQ("not-a-time"); ok {
+		t.Error("garbage input should not parse")
+	}
+}
+
 // ---- 小工具 ----
 
 func urlEncode(s string) string {

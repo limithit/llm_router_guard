@@ -56,8 +56,10 @@ func (r trendRow) total() int64 { return r.Prompt + r.Completion }
 
 const tokenSumSelect = "COUNT(*) AS call_count, COALESCE(SUM(prompt_tokens),0) AS prompt, COALESCE(SUM(completion_tokens),0) AS completion"
 
-// ---- 跨数据库时间分桶表达式（sqlite / mysql / postgres） ----
-
+// dateBucketExpr 跨数据库时间分桶表达式（sqlite / mysql / postgres）。
+// sqlite 库存值为带时区偏移的文本，strftime 默认输出 UTC 桶；
+// 加 'localtime' 修饰符按服务器本地时区分桶，与 mysql DATE_FORMAT /
+// postgres to_char（均按会话本地时区）行为一致，前端按本地日历日展示。
 func dateBucketExpr(dialect, granularity string) string {
 	if granularity == "hour" {
 		switch dialect {
@@ -66,7 +68,7 @@ func dateBucketExpr(dialect, granularity string) string {
 		case "postgres":
 			return "to_char(created_at, 'YYYY-MM-DD HH24:00')"
 		default: // sqlite
-			return "strftime('%Y-%m-%d %H:00', created_at)"
+			return "strftime('%Y-%m-%d %H:00', created_at, 'localtime')"
 		}
 	}
 	switch dialect {
@@ -75,7 +77,7 @@ func dateBucketExpr(dialect, granularity string) string {
 	case "postgres":
 		return "to_char(created_at, 'YYYY-MM-DD')"
 	default: // sqlite
-		return "strftime('%Y-%m-%d', created_at)"
+		return "strftime('%Y-%m-%d', created_at, 'localtime')"
 	}
 }
 
