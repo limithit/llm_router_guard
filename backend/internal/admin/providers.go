@@ -178,8 +178,6 @@ func (s *Server) testProvider(c *gin.Context) {
 	switch {
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
 		ok, msg = false, "认证失败（API Key 无效或无权限）"+errSnippet(body)
-	case resp.StatusCode == 404:
-		ok, msg = false, "端点不存在（404）：请检查 Base URL 是否正确"
 	case resp.StatusCode == 200:
 		if ids, has := parseModelList(body); has {
 			ok = true
@@ -188,10 +186,50 @@ func (s *Server) testProvider(c *gin.Context) {
 		} else {
 			ok, msg = false, "端点可达，但响应非标准模型列表格式（Base URL 可能不正确）"
 		}
-	default:
-		ok, msg = false, fmt.Sprintf("上游返回 %s%s", resp.Status, errSnippet(body))
+	default: // 404 / 5xx / 其它
+		if p.Protocol == "anthropic" {
+			// /v1/models 不被该端点支持（常见于第三方 Anthropic 兼容代理未实现该端点）
+			// → 回退到最小 /messages 请求，至少验证端点可达性与鉴权。
+			ok, msg = probeAnthropicMessages(base, key)
+		} else if resp.StatusCode == 404 {
+			ok, msg = false, "端点不存在（404）：请检查 Base URL 是否正确"
+		} else {
+			ok, msg = false, fmt.Sprintf("上游返回 %s%s", resp.Status, errSnippet(body))
+		}
 	}
 	s.ok(c, gin.H{"ok": ok, "latency_ms": latency, "message": msg, "models": models})
+}
+
+// probeAnthropicMessages 在 /v1/models 不可用时（多为第三方 Anthropic 兼容代理未实现该端点）
+// 用最小 /messages 请求验证端点可达性与鉴权。返回 (ok, message)；不返回模型列表。
+func probeAnthropicMessages(base, key string) (bool, string) {
+	req, err := http.NewRequest(http.MethodPost, base+"/messages",
+		strings.NewReader(`{"model":"claude-3-haiku-20240307","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		return false, "构造探测请求失败: " + err.Error()
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", key)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "连接失败: " + err.Error()
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	switch {
+	case resp.StatusCode == 200:
+		return true, "连接成功（/v1/models 不支持，/messages 探测通过）"
+	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		return false, "认证失败（API Key 无效或无权限）" + errSnippet(body)
+	case resp.StatusCode == 400 || resp.StatusCode == 404:
+		// /messages 是 Anthropic 核心端点；400/404 多为模型不存在或请求被拒，
+		// 此类错误能返回即说明端点可达且鉴权已通过。
+		return true, "连接成功（端点可达，/v1/models 不支持）"
+	default:
+		return false, fmt.Sprintf("上游返回 %s%s", resp.Status, errSnippet(body))
+	}
 }
 
 // parseModelList 从 /models 响应中解析模型 ID 列表。

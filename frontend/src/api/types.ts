@@ -203,6 +203,7 @@ export interface ProviderImportResult {
 export interface Upstream {
   provider_id: number;
   provider_name: string;
+  provider_enabled: boolean;
   upstream_model: string;
   weight: number;
 }

@@ -11,11 +11,12 @@ import (
 )
 
 type upstreamOut struct {
-	ID            uint   `json:"id"`
-	ProviderID    uint   `json:"provider_id"`
-	ProviderName  string `json:"provider_name"`
-	UpstreamModel string `json:"upstream_model"`
-	Weight        int    `json:"weight"`
+	ID              uint   `json:"id"`
+	ProviderID      uint   `json:"provider_id"`
+	ProviderName    string `json:"provider_name"`
+	ProviderEnabled bool   `json:"provider_enabled"`
+	UpstreamModel   string `json:"upstream_model"`
+	Weight          int    `json:"weight"`
 }
 
 type aliasOut struct {
@@ -46,6 +47,7 @@ func (s *Server) listModels(c *gin.Context) {
 		}
 	}
 	names := map[uint]string{}
+	enabled := map[uint]bool{}
 	if len(ids) > 0 {
 		var idList []uint
 		for id := range ids {
@@ -55,6 +57,7 @@ func (s *Server) listModels(c *gin.Context) {
 		s.db.Where("id IN ?", idList).Find(&ps)
 		for _, p := range ps {
 			names[p.ID] = p.Name
+			enabled[p.ID] = p.Enabled
 		}
 	}
 	out := make([]aliasOut, 0, len(aliases))
@@ -62,7 +65,7 @@ func (s *Server) listModels(c *gin.Context) {
 		ups := make([]upstreamOut, 0, len(a.Upstreams))
 		for _, u := range a.Upstreams {
 			ups = append(ups, upstreamOut{ID: u.ID, ProviderID: u.ProviderID,
-				ProviderName: names[u.ProviderID], UpstreamModel: u.UpstreamModel, Weight: u.Weight})
+				ProviderEnabled: enabled[u.ProviderID], ProviderName: names[u.ProviderID], UpstreamModel: u.UpstreamModel, Weight: u.Weight})
 		}
 		out = append(out, aliasOut{ID: a.ID, Alias: a.Alias, Enabled: a.Enabled, Remark: a.Remark,
 			Upstreams: ups, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
@@ -208,16 +211,18 @@ func toUpstreamOut(ups []model.AliasUpstream, s *Server) []upstreamOut {
 		ids[u.ProviderID] = true
 	}
 	names := map[uint]string{}
+	enabled := map[uint]bool{}
 	for id := range ids {
 		var p model.Provider
 		if err := s.db.First(&p, id).Error; err == nil {
 			names[id] = p.Name
+			enabled[id] = p.Enabled
 		}
 	}
 	out := make([]upstreamOut, 0, len(ups))
 	for _, u := range ups {
 		out = append(out, upstreamOut{ID: u.ID, ProviderID: u.ProviderID,
-			ProviderName: names[u.ProviderID], UpstreamModel: u.UpstreamModel, Weight: u.Weight})
+			ProviderEnabled: enabled[u.ProviderID], ProviderName: names[u.ProviderID], UpstreamModel: u.UpstreamModel, Weight: u.Weight})
 	}
 	return out
 }

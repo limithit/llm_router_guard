@@ -177,8 +177,13 @@ export default function Models() {
             render: (_: unknown, record: ModelAlias) => (
               <Space size={[4, 4]} wrap>
                 {record.upstreams.map((u, i) => (
-                  <Tag key={`${u.provider_id}-${i}`} color="geekblue">
+                  <Tag
+                    key={`${u.provider_id}-${i}`}
+                    color={u.provider_enabled ? 'geekblue' : 'default'}
+                    style={u.provider_enabled ? undefined : { opacity: 0.6 }}
+                  >
                     {providerName(u.provider_id)} / {u.upstream_model} ×{u.weight}
+                    {!u.provider_enabled && '（已停用）'}
                   </Tag>
                 ))}
                 {record.upstreams.length === 0 ? <Typography.Text type="secondary">无上游</Typography.Text> : null}
