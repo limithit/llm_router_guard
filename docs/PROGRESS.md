@@ -114,8 +114,8 @@
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：见 `git log`（第八轮 i18n 提交为本节变更）
-- 工作区：第八轮变更（前端 i18n 全套：`src/i18n/`、`LanguageSwitch.tsx`、22 页面 + 共享组件改造、`docs/i18n-frontend.md`、`package*.json`、`.gitignore`）
+- 最新提交：`8e9abef feat(frontend): add zh-CN/en-US i18n switching (frontend-only)`（第八轮）
+- 工作区：干净
 
 ## 📝 已完成迭代历史
 
