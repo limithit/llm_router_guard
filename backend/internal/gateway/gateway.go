@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	mr "math/rand"
 	"net/http"
 	"sort"
@@ -418,6 +419,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		ap.errMsg = fmt.Sprintf("%s: %v", up.ProviderName, err)
+		log.Printf("[upstream] %s %s: %v", up.ProviderName, up.UpstreamModel, err)
 		s.bl.RecordFailure(up.ProviderID, snap.Failover, err.Error())
 		return frRetry
 	}
@@ -432,6 +434,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		retryable := snap.Failover.Enabled && (resp.StatusCode >= 500 || containsInt(snap.Failover.TriggerStatusCodes, resp.StatusCode))
 		if retryable {
 			ap.errMsg = fmt.Sprintf("%s returned %d: %s", up.ProviderName, resp.StatusCode, msg)
+			log.Printf("[upstream] %s %s returned %d: %s", up.ProviderName, up.UpstreamModel, resp.StatusCode, msg)
 			s.bl.RecordFailure(up.ProviderID, snap.Failover, msg)
 			return frRetry
 		}
