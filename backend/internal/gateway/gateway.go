@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	mr "math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ import (
 	"llmrouter/internal/model"
 	"llmrouter/internal/quota"
 	"llmrouter/internal/runtime"
+	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
 )
 
@@ -107,6 +109,12 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if !rec.IPAllowed(c.ClientIP()) {
+			clientError(c, proto, http.StatusForbidden,
+				"ip not allowed for this api key", "forbidden", "ip_not_allowed")
+			c.Abort()
+			return
+		}
 		c.Set("apikey", rec)
 		c.Next()
 	}
@@ -123,6 +131,24 @@ func (s *Server) touchLastUsed(id uint) {
 		t := time.Now()
 		s.db.Model(&model.APIKey{}).Where("id = ?", id).Update("last_used_at", &t)
 	}()
+}
+
+// shouldAuditCall 判断本次调用是否应写入调用审计。
+// 总开关关闭 → 不记；错误/拦截 → 始终记（便于排查）；成功调用受「仅错误」与采样控制。
+func shouldAuditCall(g settings.General, status string) bool {
+	if !g.CallAuditEnabled {
+		return false
+	}
+	if status != "ok" {
+		return true
+	}
+	if g.CallAuditOnlyErrors {
+		return false
+	}
+	if g.CallAuditSampling <= 1 {
+		return true
+	}
+	return mr.Intn(g.CallAuditSampling) == 0
 }
 
 // writeLog 组装并异步入库调用审计（REQ-015）。
@@ -168,7 +194,9 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 			proto: clientProto, status: "error",
 		}
 		defer func() {
-			s.writeLog(ap)
+			if shouldAuditCall(snap.General, ap.status) {
+				s.writeLog(ap)
+			}
 			s.mx.Observe(ap.alias, ap.status != "ok")
 		}()
 
@@ -192,6 +220,13 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 			clientError(c, clientProto, http.StatusNotFound,
 				fmt.Sprintf("unknown model %q: not a configured alias", cr.Model),
 				"invalid_request_error", "model_not_found")
+			return
+		}
+		if !apiKey.AllowsModel(cr.Model) {
+			ap.errMsg = "model not allowed for api key"
+			clientError(c, clientProto, http.StatusForbidden,
+				fmt.Sprintf("model %q is not allowed for this api key", cr.Model),
+				"forbidden", "model_not_allowed")
 			return
 		}
 
@@ -265,9 +300,9 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		tried := map[uint]bool{}
 		lastErr := "no available upstream"
 		for attempt := 0; attempt < maxAttempts; attempt++ {
-			up, ok5 := s.bl.Pick(ups, tried)
+			up, ok5 := s.bl.Pick(ap.alias, ups, tried)
 			if !ok5 {
-				up, ok5 = s.bl.PickIgnoringCircuit(ups, tried)
+				up, ok5 = s.bl.PickIgnoringCircuit(ap.alias, ups, tried)
 			}
 			if !ok5 {
 				break

@@ -46,9 +46,9 @@
 | 配置热加载 | ✅ 完成 | REQ-004/004A | Atomic Pointer 快照切换、DB counter 增量触发 |
 | 协议适配层 | ⚠️ 基础版 | REQ-017 | OpenAI Chat/Responses/Anthropic Messages; 工具调用未实现 |
 | 护栏引擎 | ✅ 完成 | REQ-008~011 | 敏感词/PII/注入/输出过滤; AC自动机接口预留但未实现 |
-| SLB+熔断 | ✅ 完成 | REQ-006/007 | 加权随机选择、熔断器、指数退避重试 |
+| SLB+熔断 | ✅ 完成 | REQ-006/007 | 平滑加权轮询(SWRR)、熔断器、指数退避重试 |
 | 配额+限流 | ✅ 完成 | REQ-012/013 | 固定窗口计数、惰性周期重置、Webhook预警 |
-| 审计日志 | ✅ 完成 | REQ-003/015 | 调用审计异步批量写入、操作审计全记录、CSV导出 |
+| 审计日志 | ✅ 完成 | REQ-003/015 | 调用审计异步批量写入（可关停+采样）、操作审计全记录、CSV导出 |
 | JWT认证 | ✅ 完成 | - | 管理后台JWT签发校验、登录锁定策略 |
 | MFA | ✅ 完成 | REQ-020~022 | TOTP绑定/解绑、恢复码、强制策略 |
 | 管理API CRUD | ✅ 完成 | REQ-001~REQ-024(除计费外) | 70+ REST端点全部实现 |
@@ -225,21 +225,21 @@ frontend/src/
 
 ## 📋 第四轮迭代待办（用户指定，2026-09-02）
 
-> 以下三项为用户明确要求的下一轮需求，记入待办，尚未实现。
+> 以下三项为用户明确要求的第四轮需求，已于 2026-09-02 全部实现并通过测试（go test ./... 绿、tsc 零错误、vite build 通过）。
 
-### 1. [P0] SLB：加权轮询分发（去随机化）
+### 1. ✅ SLB：加权轮询分发（去随机化）— 已实现
 - **现状**：`slb.Pick` 用 `rand.Intn(total)` 做**加权随机**（`internal/slb/slb.go:71`）。权重相等时，三次请求可能都落同一上游（3/27 ≈ 3.7% 概率），体感像"没轮询、总打一家"。已实测确认别名为 `glm5.2` 挂 3 个启用上游（商汤比克/yaoyang/ningyi，weight 均为 1），配置无误，是策略本身导致分布不可预期。
 - **目标**：改为**加权轮询（weighted round-robin）**，按权重顺序循环分发，确定性、可预期、不聚堆。推荐平滑加权轮询（SWRR），无需大锁、单实例语义下内存游标即可。
 - **要点**：保留熔断跳过与故障转移排除（`tried`）；游标按别名维度维护。
 - **涉及**：`internal/slb/slb.go`（Pick 重写为 SWRR + 游标）、`internal/slb/slb_test.go`（随机断言改为轮询序列断言）。
 
-### 2. [P0] API Key：模型限定 + IP 白名单
+### 2. ✅ API Key：模型限定 + IP 白名单 — 已实现
 - **模型限定**：API Key 可绑定允许的模型别名集合；**默认（未配置）允许所有模型**。网关在解析 alias 后校验该 key 是否被授权访问此 alias，未授权返回 403。
 - **IP 白名单**：API Key 可配置 IP/CIDR 白名单；**默认不启用（允许所有来源）**。启用后校验 `X-Forwarded-For`（取首段）/`RemoteAddr`。
 - **数据模型**：`model.APIKey` 加 `AllowedModelsJSON`（别名数组，空=全部）、`IPAllowlistJSON`（CIDR 数组）、`IPAllowlistEnabled bool`；经热加载进 `Snapshot.APIKeys`。
 - **涉及**：`internal/model/model.go`、`internal/runtime/manager.go`（加载）、`internal/gateway/gateway.go`（AuthMiddleware/Handle 校验）、`internal/admin/apikeys.go` + 前端 `settings/ApiKeys.tsx`（表单）。
 
-### 3. [P1] 审计日志：写入开关（性能）
+### 3. ✅ 审计日志：写入开关（性能）— 已实现
 - **现状**：调用审计每请求异步入库（`audit.Write` → channel → 200ms 批量 flush）。请求量大时 DB 写入与存储压力大，影响性能。
 - **目标**：增加开关，可关停调用审计写入（**操作审计仍保留，不可关**）。建议细粒度：总开关 + 按"成功/失败/拦截"分类开关 + 采样率（1/N，默认 1=全记）。
 - **数据模型**：`settings.General`（或新增 AuditSettings）加 `CallAuditEnabled bool`（默认 true）、`CallAuditSampling int`（默认 1）、可选 `CallAuditOnlyErrors bool`。

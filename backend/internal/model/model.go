@@ -3,6 +3,8 @@
 package model
 
 import (
+	"encoding/json"
+	"net"
 	"time"
 )
 
@@ -35,10 +37,57 @@ type APIKey struct {
 	KeyHash    string     `gorm:"size:64;index" json:"-"`   // sha256(hex)
 	KeyMasked  string     `gorm:"size:64" json:"key_masked"`
 	Remark     string     `gorm:"size:255" json:"remark"`
+	// AllowedModelsJSON: 允许的模型别名 JSON 数组；空=允许全部（默认）
+	AllowedModelsJSON string `gorm:"type:text" json:"allowed_models_json"`
+	// IPAllowlistJSON: IP/CIDR 白名单 JSON 数组；IPAllowlistEnabled=false 时忽略（默认放行）
+	IPAllowlistJSON   string `gorm:"type:text" json:"ip_allowlist_json"`
+	IPAllowlistEnabled bool  `json:"ip_allowlist_enabled"`
 	Enabled    bool       `json:"enabled"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// AllowsModel 判断该 Key 是否被授权访问指定别名；空列表表示允许全部。
+func (k APIKey) AllowsModel(alias string) bool {
+	if k.AllowedModelsJSON == "" {
+		return true
+	}
+	var list []string
+	if err := json.Unmarshal([]byte(k.AllowedModelsJSON), &list); err != nil {
+		return true // 解析失败：放宽到全部允许，避免配置错误锁死
+	}
+	if len(list) == 0 {
+		return true
+	}
+	for _, m := range list {
+		if m == alias {
+			return true
+		}
+	}
+	return false
+}
+
+// IPAllowed 判断请求 IP 是否在白名单内；未启用 IP 白名单时一律放行。
+// 启用后，IP 不在列表内则拒绝（fail-closed）。
+func (k APIKey) IPAllowed(ipStr string) bool {
+	if !k.IPAllowlistEnabled {
+		return true
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	var cidrs []string
+	if err := json.Unmarshal([]byte(k.IPAllowlistJSON), &cidrs); err != nil {
+		return false
+	}
+	for _, c := range cidrs {
+		if _, network, err := net.ParseCIDR(c); err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- 模型供应商 (REQ-005) ----------

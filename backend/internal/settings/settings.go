@@ -21,22 +21,27 @@ type General struct {
 	HotReloadSeconds      int    `json:"hot_reload_seconds"`
 	ListenPort            int    `json:"listen_port"`
 	ListenPortNote        string `json:"listen_port_note,omitempty"`
+	// 调用审计写入控制：默认开启、默认全记（采样=1）、默认不只记错误。错误/拦截始终记录。
+	CallAuditEnabled    bool `json:"call_audit_enabled"`
+	CallAuditOnlyErrors bool `json:"call_audit_only_errors"`
+	CallAuditSampling   int  `json:"call_audit_sampling"`
 }
 
 func DefaultGeneral() General {
 	return General{LogLevel: "info", AuditRetentionDays: 90, DefaultTimeoutSeconds: 120,
-		MaxConnections: 1000, GuardEnabled: true, HotReloadSeconds: 3, ListenPort: 8080}
+		MaxConnections: 1000, GuardEnabled: true, HotReloadSeconds: 3, ListenPort: 8080,
+		CallAuditEnabled: true, CallAuditSampling: 1}
 }
 
 // Failover REQ-007：故障转移与熔断。
 type Failover struct {
-	Enabled                 bool  `json:"enabled"`
-	RetryCount              int   `json:"retry_count"`
+	Enabled                 bool   `json:"enabled"`
+	RetryCount              int    `json:"retry_count"`
 	Backoff                 string `json:"backoff"` // fixed|exponential
-	RetryIntervalMs         int   `json:"retry_interval_ms"`
-	TriggerStatusCodes      []int `json:"trigger_status_codes"`
-	CircuitFailureThreshold int   `json:"circuit_failure_threshold"`
-	CircuitResetSeconds     int   `json:"circuit_reset_seconds"`
+	RetryIntervalMs         int    `json:"retry_interval_ms"`
+	TriggerStatusCodes      []int  `json:"trigger_status_codes"`
+	CircuitFailureThreshold int    `json:"circuit_failure_threshold"`
+	CircuitResetSeconds     int    `json:"circuit_reset_seconds"`
 }
 
 func DefaultFailover() Failover {
@@ -46,10 +51,10 @@ func DefaultFailover() Failover {
 
 // OutputFilter REQ-011：输出过滤策略。
 type OutputFilter struct {
-	Enabled             bool   `json:"enabled"`
-	ViolationStrategy   string `json:"violation_strategy"` // replace|block|log
-	SafeMessage         string `json:"safe_message"`
-	StreamChunkThreshold int   `json:"stream_chunk_threshold"`
+	Enabled              bool   `json:"enabled"`
+	ViolationStrategy    string `json:"violation_strategy"` // replace|block|log
+	SafeMessage          string `json:"safe_message"`
+	StreamChunkThreshold int    `json:"stream_chunk_threshold"`
 }
 
 func DefaultOutputFilter() OutputFilter {
@@ -59,8 +64,8 @@ func DefaultOutputFilter() OutputFilter {
 
 // QuotaAlerts REQ-014。
 type QuotaAlerts struct {
-	Enabled    bool  `json:"enabled"`
-	Thresholds []int `json:"thresholds"`
+	Enabled    bool   `json:"enabled"`
+	Thresholds []int  `json:"thresholds"`
 	Channel    string `json:"channel"` // ui|webhook
 	WebhookURL string `json:"webhook_url"`
 	Receivers  string `json:"receivers"`
@@ -72,10 +77,10 @@ func DefaultQuotaAlerts() QuotaAlerts {
 
 // Security REQ-020：MFA 全局配置。
 type Security struct {
-	MFAEnabled       bool `json:"mfa_enabled"`
-	MFARequiredAll   bool `json:"mfa_required_for_all"`
+	MFAEnabled        bool `json:"mfa_enabled"`
+	MFARequiredAll    bool `json:"mfa_required_for_all"`
 	RecoveryCodeCount int  `json:"recovery_code_count"`
-	GraceDays        int  `json:"grace_days"`
+	GraceDays         int  `json:"grace_days"`
 }
 
 func DefaultSecurity() Security {
@@ -92,17 +97,16 @@ type ConfigMeta struct {
 
 // LoadKV 读取一个 KV 配置模块并反序列化到 dst；不存在时保持 dst 默认值。
 func LoadKV[T any](gdb *gorm.DB, key string, dst *T, def T) error {
+	*dst = def // 先填默认值，缺失字段保留默认（前向兼容，避免新增字段被旧记录清零）
 	var row model.SystemSetting
 	err := gdb.Where("key = ?", key).First(&row).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			*dst = def
 			return nil
 		}
 		return err
 	}
 	if row.ValueJSON == "" {
-		*dst = def
 		return nil
 	}
 	return json.Unmarshal([]byte(row.ValueJSON), dst)

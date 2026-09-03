@@ -37,6 +37,9 @@ export default function GeneralSettings() {
         max_connections: data.max_connections,
         guard_enabled: data.guard_enabled,
         hot_reload_seconds: data.hot_reload_seconds,
+        call_audit_enabled: data.call_audit_enabled,
+        call_audit_only_errors: data.call_audit_only_errors,
+        call_audit_sampling: data.call_audit_sampling,
       });
     }
   }, [data, form]);
@@ -105,6 +108,30 @@ export default function GeneralSettings() {
           tooltip="关闭后所有输入/输出过滤规则失效，仅记录审计"
         >
           <Switch />
+        </Form.Item>
+        <Form.Item
+          name="call_audit_enabled"
+          label="调用审计写入"
+          valuePropName="checked"
+          tooltip="关闭后不再写入调用审计（操作审计仍保留）。大量请求时关闭可降低 DB 写入压力。"
+        >
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="call_audit_only_errors"
+          label="仅记录失败/拦截"
+          valuePropName="checked"
+          tooltip="开启后成功调用不写审计，仅记录错误与被护栏拦截的调用。"
+        >
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="call_audit_sampling"
+          label="成功调用采样"
+          tooltip="1=全记；N>1=成功调用按 1/N 概率记录（失败/拦截始终全记）。"
+          rules={[{ required: true, message: '请输入采样率' }]}
+        >
+          <InputNumber min={1} max={1000} precision={0} style={{ width: 200 }} addonAfter="1/N" />
         </Form.Item>
         <Form.Item
           name="hot_reload_seconds"

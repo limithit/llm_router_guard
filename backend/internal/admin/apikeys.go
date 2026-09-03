@@ -26,8 +26,11 @@ func (s *Server) listApiKeys(c *gin.Context) {
 
 func (s *Server) createApiKey(c *gin.Context) {
 	var req struct {
-		Name   string `json:"name"`
-		Remark string `json:"remark"`
+		Name               string `json:"name"`
+		Remark             string `json:"remark"`
+		AllowedModelsJSON  string `json:"allowed_models_json"`
+		IPAllowlistJSON    string `json:"ip_allowlist_json"`
+		IPAllowlistEnabled bool   `json:"ip_allowlist_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
 		s.fail(c, http.StatusBadRequest, 40001, "请输入 Key 名称")
@@ -35,7 +38,9 @@ func (s *Server) createApiKey(c *gin.Context) {
 	}
 	key := "sk-" + crypto.RandomHex(16)
 	rec := model.APIKey{Name: req.Name, KeyHash: crypto.Sha256Hex(key),
-		KeyMasked: crypto.MaskKey(key), Remark: req.Remark, Enabled: true}
+		KeyMasked: crypto.MaskKey(key), Remark: req.Remark,
+		AllowedModelsJSON: req.AllowedModelsJSON, IPAllowlistJSON: req.IPAllowlistJSON,
+		IPAllowlistEnabled: req.IPAllowlistEnabled, Enabled: true}
 	if err := s.db.Create(&rec).Error; err != nil {
 		if strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "unique") {
 			s.fail(c, http.StatusConflict, 40901, "名称已存在")
@@ -57,9 +62,12 @@ func (s *Server) updateApiKey(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name    string `json:"name"`
-		Remark  string `json:"remark"`
-		Enabled bool   `json:"enabled"`
+		Name               string `json:"name"`
+		Remark             string `json:"remark"`
+		Enabled            bool   `json:"enabled"`
+		AllowedModelsJSON  string `json:"allowed_models_json"`
+		IPAllowlistJSON    string `json:"ip_allowlist_json"`
+		IPAllowlistEnabled bool   `json:"ip_allowlist_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
@@ -67,6 +75,9 @@ func (s *Server) updateApiKey(c *gin.Context) {
 	}
 	before := k
 	k.Name, k.Remark, k.Enabled = req.Name, req.Remark, req.Enabled
+	k.AllowedModelsJSON = req.AllowedModelsJSON
+	k.IPAllowlistJSON = req.IPAllowlistJSON
+	k.IPAllowlistEnabled = req.IPAllowlistEnabled
 	if err := s.db.Save(&k).Error; err != nil {
 		s.fail(c, 500, 50001, "更新失败")
 		return

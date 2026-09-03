@@ -488,6 +488,9 @@ export interface SystemSettings {
   max_connections: number;
   guard_enabled: boolean;
   hot_reload_seconds: number;
+  call_audit_enabled: boolean;
+  call_audit_only_errors: boolean;
+  call_audit_sampling: number;
   /** 只读：仅启动参数生效 */
   listen_port: number;
   listen_port_note: string;
@@ -500,6 +503,9 @@ export interface SystemSettingsInput {
   max_connections: number;
   guard_enabled: boolean;
   hot_reload_seconds: number;
+  call_audit_enabled: boolean;
+  call_audit_only_errors: boolean;
+  call_audit_sampling: number;
 }
 
 // ============ API Key (REQ-002) ============
@@ -508,6 +514,9 @@ export interface ApiKey {
   name: string;
   key_masked: string;
   remark: string;
+  allowed_models_json: string; // JSON 数组 of 别名；空=允许全部（默认）
+  ip_allowlist_json: string; // JSON 数组 of CIDR
+  ip_allowlist_enabled: boolean;
   enabled: boolean;
   last_used_at?: string | null;
   created_at?: string | null;
@@ -516,6 +525,9 @@ export interface ApiKey {
 export interface ApiKeyCreateBody {
   name: string;
   remark?: string;
+  allowed_models_json?: string;
+  ip_allowlist_json?: string;
+  ip_allowlist_enabled?: boolean;
 }
 
 /** 创建成功时额外一次性返回完整 key */
@@ -529,6 +541,9 @@ export interface ApiKeyUpdateBody {
   name: string;
   remark?: string;
   enabled: boolean;
+  allowed_models_json?: string;
+  ip_allowlist_json?: string;
+  ip_allowlist_enabled?: boolean;
 }
 
 // ============ 安全设置 (REQ-020 / REQ-023) ============

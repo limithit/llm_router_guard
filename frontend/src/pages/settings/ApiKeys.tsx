@@ -11,6 +11,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Switch,
   Table,
@@ -20,15 +21,29 @@ import {
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
-import { apikeyApi } from '../../api/endpoints';
+import { apikeyApi, modelApi } from '../../api/endpoints';
 import { fmtTime } from '../../utils/format';
-import type { ApiKey, ApiKeyCreated } from '../../api/types';
+import type { ApiKey, ApiKeyCreated, ModelAlias } from '../../api/types';
 
 interface KeyFormValues {
   name: string;
   remark?: string;
   enabled?: boolean;
+  allowed_models?: string[]; // 允许的别名数组（多选）；空=允许全部
+  ip_allowlist_text?: string; // 一行一个 CIDR（textarea 原文）
+  ip_allowlist_enabled?: boolean;
 }
+
+// 安全解析后端返回的 JSON 字符串数组（allowed_models_json / ip_allowlist_json）。
+const parseStrArr = (s?: string | null): string[] => {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
 
 export default function ApiKeys() {
   const { message } = App.useApp();
@@ -46,6 +61,17 @@ export default function ApiKeys() {
     queryFn: () => apikeyApi.list({ page, page_size: pageSize }),
     placeholderData: keepPreviousData,
   });
+
+  // 别名列表，用于「限定模型」多选的下拉建议。
+  const { data: modelsData } = useQuery({
+    queryKey: ['models-all'],
+    queryFn: () => modelApi.list({ page: 1, page_size: 1000 }),
+    staleTime: 60_000,
+  });
+  const modelOptions = (modelsData?.items ?? []).map((m: ModelAlias) => ({
+    label: m.alias,
+    value: m.alias,
+  }));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['apikeys'] });
@@ -84,7 +110,14 @@ export default function ApiKeys() {
   });
 
   const toggleEnabled = async (row: ApiKey, enabled: boolean) => {
-    await apikeyApi.update(row.id, { name: row.name, remark: row.remark, enabled });
+    await apikeyApi.update(row.id, {
+      name: row.name,
+      remark: row.remark,
+      enabled,
+      allowed_models_json: row.allowed_models_json,
+      ip_allowlist_json: row.ip_allowlist_json,
+      ip_allowlist_enabled: row.ip_allowlist_enabled,
+    });
     invalidate();
   };
 
@@ -95,21 +128,48 @@ export default function ApiKeys() {
   };
 
   const openEdit = (row: ApiKey) => {
-    setEditing(row);
-    form.setFieldsValue({ name: row.name, remark: row.remark, enabled: row.enabled });
     setCreateOpen(false);
     setEditing(row);
+    form.setFieldsValue({
+      name: row.name,
+      remark: row.remark,
+      enabled: row.enabled,
+      allowed_models: parseStrArr(row.allowed_models_json),
+      ip_allowlist_text: parseStrArr(row.ip_allowlist_json).join('\n'),
+      ip_allowlist_enabled: row.ip_allowlist_enabled,
+    });
   };
 
   const handleOk = async () => {
     const v = await form.validateFields();
+    const allowed_models_json =
+      v.allowed_models && v.allowed_models.length ? JSON.stringify(v.allowed_models) : '';
+    const ipList = (v.ip_allowlist_text || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const ip_allowlist_json = ipList.length ? JSON.stringify(ipList) : '';
+    const ip_allowlist_enabled = v.ip_allowlist_enabled ?? false;
     if (editing) {
       updateMutation.mutate({
         id: editing.id,
-        body: { name: v.name, remark: v.remark, enabled: v.enabled ?? editing.enabled },
+        body: {
+          name: v.name,
+          remark: v.remark,
+          enabled: v.enabled ?? editing.enabled,
+          allowed_models_json,
+          ip_allowlist_json,
+          ip_allowlist_enabled,
+        },
       });
     } else {
-      createMutation.mutate({ name: v.name, remark: v.remark });
+      createMutation.mutate({
+        name: v.name,
+        remark: v.remark,
+        allowed_models_json,
+        ip_allowlist_json,
+        ip_allowlist_enabled,
+      });
     }
   };
 
@@ -214,6 +274,34 @@ export default function ApiKeys() {
               <Switch />
             </Form.Item>
           )}
+          <Form.Item
+            name="allowed_models"
+            label="限定模型"
+            tooltip="留空 = 允许调用所有模型别名；选择后该 Key 只能调用所选别名。"
+          >
+            <Select
+              mode="tags"
+              allowClear
+              placeholder="留空允许全部；可选或输入别名"
+              options={modelOptions}
+              tokenSeparators={[',', '\n']}
+            />
+          </Form.Item>
+          <Form.Item
+            name="ip_allowlist_enabled"
+            label="启用 IP 白名单"
+            valuePropName="checked"
+            tooltip="默认不启用；启用后仅列出的 IP/CIDR 可用此 Key 调用。"
+          >
+            <Switch />
+          </Form.Item>
+          <Form.Item
+            name="ip_allowlist_text"
+            label="IP 白名单"
+            tooltip="一行一个 CIDR，如 10.0.0.0/8、192.168.1.5。仅在「启用 IP 白名单」开启时生效。"
+          >
+            <Input.TextArea rows={3} placeholder={'10.0.0.0/8\n192.168.1.5\n2001:db8::/32'} />
+          </Form.Item>
         </Form>
       </Modal>
 

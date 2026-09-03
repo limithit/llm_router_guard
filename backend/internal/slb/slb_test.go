@@ -52,7 +52,7 @@ func TestPick_BasicSelection(t *testing.T) {
 	bl := New()
 	ups := makeUpstreams()
 
-	picked, ok := bl.Pick(ups, nil)
+	picked, ok := bl.Pick("a", ups, nil)
 	if !ok {
 		t.Fatal("Pick should succeed with available upstreams")
 	}
@@ -67,7 +67,7 @@ func TestPick_RespectsTried(t *testing.T) {
 
 	// Mark provider 1 as tried
 	tried := map[uint]bool{1: true}
-	picked, ok := bl.Pick(ups, tried)
+	picked, ok := bl.Pick("a", ups, tried)
 	if !ok {
 		t.Fatal("Pick should succeed with remaining upstreams")
 	}
@@ -82,7 +82,7 @@ func TestPick_AllTried(t *testing.T) {
 
 	// All providers tried
 	tried := map[uint]bool{1: true, 2: true, 3: true}
-	_, ok := bl.Pick(ups, tried)
+	_, ok := bl.Pick("a", ups, tried)
 	if ok {
 		t.Error("Pick should fail when all providers are tried")
 	}
@@ -91,7 +91,7 @@ func TestPick_AllTried(t *testing.T) {
 func TestPick_EmptyUpstreams(t *testing.T) {
 	bl := New()
 
-	_, ok := bl.Pick(nil, nil)
+	_, ok := bl.Pick("a", nil, nil)
 	if ok {
 		t.Error("Pick should fail with empty upstream list")
 	}
@@ -103,7 +103,7 @@ func TestPick_ZeroWeight(t *testing.T) {
 		{ProviderID: 1, ProviderName: "zero-weight", Weight: 0},
 	}
 
-	_, ok := bl.Pick(ups, nil)
+	_, ok := bl.Pick("a", ups, nil)
 	if ok {
 		t.Error("Pick should fail when all upstreams have zero weight")
 	}
@@ -114,7 +114,7 @@ func TestPick_NilTried(t *testing.T) {
 	ups := makeUpstreams()
 
 	// nil tried map should work (treated as empty)
-	_, ok := bl.Pick(ups, nil)
+	_, ok := bl.Pick("a", ups, nil)
 	if !ok {
 		t.Error("Pick should work with nil tried map")
 	}
@@ -126,7 +126,7 @@ func TestPick_SingleUpstream(t *testing.T) {
 		{ProviderID: 1, ProviderName: "only-one", Weight: 1},
 	}
 
-	picked, ok := bl.Pick(ups, nil)
+	picked, ok := bl.Pick("a", ups, nil)
 	if !ok {
 		t.Fatal("Pick should succeed with single upstream")
 	}
@@ -145,30 +145,23 @@ func TestPick_WeightDistribution(t *testing.T) {
 	iterations := 10000
 
 	for i := 0; i < iterations; i++ {
-		picked, ok := bl.Pick(ups, nil)
+		picked, ok := bl.Pick("a", ups, nil)
 		if !ok {
 			t.Fatal("Pick failed during distribution test")
 		}
 		counts[picked.ProviderID]++
 	}
 
-	// Provider 1 should get ~50% (5/10)
-	// Provider 2 should get ~30% (3/10)
-	// Provider 3 should get ~20% (2/10)
-	// Allow ±5% tolerance
-	checkDistribution(t, counts[1], iterations, 0.50, 0.05, "provider 1 (weight 5)")
-	checkDistribution(t, counts[2], iterations, 0.30, 0.05, "provider 2 (weight 3)")
-	checkDistribution(t, counts[3], iterations, 0.20, 0.05, "provider 3 (weight 2)")
-}
-
-func checkDistribution(t *testing.T, got, total int, expected, tolerance float64, name string) {
-	actual := float64(got) / float64(total)
-	diff := actual - expected
-	if diff < 0 {
-		diff = -diff
+	// SWRR 是确定性加权轮询：每 total(=10) 次恰好按权重比例分发，
+	// 故 10000 次 = 1000 轮，应严格等于 5000/3000/2000。
+	if counts[1] != 5000 {
+		t.Errorf("provider 1 (weight 5): got %d, want 5000", counts[1])
 	}
-	if diff > tolerance {
-		t.Errorf("%s: got %.1f%%, expected %.1f%% (±%.1f%%)", name, actual*100, expected*100, tolerance*100)
+	if counts[2] != 3000 {
+		t.Errorf("provider 2 (weight 3): got %d, want 3000", counts[2])
+	}
+	if counts[3] != 2000 {
+		t.Errorf("provider 3 (weight 2): got %d, want 2000", counts[3])
 	}
 }
 
@@ -184,12 +177,11 @@ func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 		bl.RecordFailure(1, fo, "timeout")
 	}
 
-	// Provider 1 should still be selectable
-	picked, ok := bl.Pick(ups, nil)
+	// Provider 1 should still be selectable (circuit not yet open)
+	picked, ok := bl.Pick("a", ups, nil)
 	if !ok {
 		t.Fatal("Pick should succeed before circuit opens")
 	}
-	// Provider 1 might still be picked (not guaranteed due to randomness)
 	_ = picked
 
 	// Record one more failure to hit threshold
@@ -198,7 +190,7 @@ func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 	// Now provider 1 should be circuit-broken
 	// Run multiple picks to verify provider 1 is never selected
 	for i := 0; i < 100; i++ {
-		picked, ok := bl.Pick(ups, nil)
+		picked, ok := bl.Pick("a", ups, nil)
 		if !ok {
 			t.Fatal("Pick should succeed with other providers available")
 		}
@@ -288,7 +280,7 @@ func TestCircuitBreaker_PartialAvailability(t *testing.T) {
 	}
 
 	// Pick should still work, just skip provider 1
-	picked, ok := bl.Pick(ups, nil)
+	picked, ok := bl.Pick("a", ups, nil)
 	if !ok {
 		t.Fatal("Pick should succeed with partial availability")
 	}
@@ -302,7 +294,7 @@ func TestCircuitBreaker_PartialAvailability(t *testing.T) {
 	}
 
 	// Still should work with provider 3
-	picked, ok = bl.Pick(ups, nil)
+	picked, ok = bl.Pick("a", ups, nil)
 	if !ok {
 		t.Fatal("Pick should succeed with one provider left")
 	}
@@ -324,7 +316,7 @@ func TestCircuitBreaker_AllBroken(t *testing.T) {
 	}
 
 	// Pick should fail when all are circuit-broken
-	_, ok := bl.Pick(ups, nil)
+	_, ok := bl.Pick("a", ups, nil)
 	if ok {
 		t.Error("Pick should fail when all providers are circuit-broken")
 	}
@@ -345,7 +337,7 @@ func TestPickIgnoringCircuit_AllBroken(t *testing.T) {
 	}
 
 	// PickIgnoringCircuit should still work (availability-first fallback)
-	picked, ok := bl.PickIgnoringCircuit(ups, nil)
+	picked, ok := bl.PickIgnoringCircuit("a", ups, nil)
 	if !ok {
 		t.Error("PickIgnoringCircuit should succeed even when all are broken")
 	}
@@ -359,7 +351,7 @@ func TestPickIgnoringCircuit_RespectsTried(t *testing.T) {
 	ups := makeUpstreams()
 
 	tried := map[uint]bool{1: true, 2: true}
-	picked, ok := bl.PickIgnoringCircuit(ups, tried)
+	picked, ok := bl.PickIgnoringCircuit("a", ups, tried)
 	if !ok {
 		t.Fatal("Should succeed with remaining provider")
 	}
@@ -373,7 +365,7 @@ func TestPickIgnoringCircuit_AllTried(t *testing.T) {
 	ups := makeUpstreams()
 
 	tried := map[uint]bool{1: true, 2: true, 3: true}
-	_, ok := bl.PickIgnoringCircuit(ups, tried)
+	_, ok := bl.PickIgnoringCircuit("a", ups, tried)
 	if ok {
 		t.Error("Should fail when all providers are tried")
 	}
@@ -390,7 +382,7 @@ func TestFailover_FullRetryLoop(t *testing.T) {
 	tried := map[uint]bool{}
 
 	// First pick
-	p1, ok := bl.Pick(ups, tried)
+	p1, ok := bl.Pick("a", ups, tried)
 	if !ok {
 		t.Fatal("First pick should succeed")
 	}
@@ -398,7 +390,7 @@ func TestFailover_FullRetryLoop(t *testing.T) {
 	bl.RecordFailure(p1.ProviderID, fo, "500 error")
 
 	// Second pick (skip first)
-	p2, ok := bl.Pick(ups, tried)
+	p2, ok := bl.Pick("a", ups, tried)
 	if !ok {
 		t.Fatal("Second pick should succeed")
 	}
@@ -409,7 +401,7 @@ func TestFailover_FullRetryLoop(t *testing.T) {
 	bl.RecordFailure(p2.ProviderID, fo, "timeout")
 
 	// Third pick (skip first two)
-	p3, ok := bl.Pick(ups, tried)
+	p3, ok := bl.Pick("a", ups, tried)
 	if !ok {
 		t.Fatal("Third pick should succeed")
 	}
@@ -513,7 +505,7 @@ func TestConcurrent_PickAndRecord(t *testing.T) {
 	// Concurrent picker
 	go func() {
 		for i := 0; i < 1000; i++ {
-			bl.Pick(ups, nil)
+			bl.Pick("a", ups, nil)
 		}
 		done <- true
 	}()
@@ -562,7 +554,7 @@ func BenchmarkPick_SingleProvider(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bl.Pick(ups, nil)
+		bl.Pick("a", ups, nil)
 	}
 }
 
@@ -571,7 +563,7 @@ func BenchmarkPick_ThreeProviders(b *testing.B) {
 	ups := makeUpstreams()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bl.Pick(ups, nil)
+		bl.Pick("a", ups, nil)
 	}
 }
 
@@ -587,7 +579,7 @@ func BenchmarkPick_WithCircuitBreaker(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bl.Pick(ups, nil)
+		bl.Pick("a", ups, nil)
 	}
 }
 
