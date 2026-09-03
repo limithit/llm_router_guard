@@ -10,6 +10,7 @@ const ENDPOINTS = [
   { key: '1', proto: 'OpenAI Chat', method: 'POST', path: '/v1/chat/completions', client: 'openai-python、绝大多数 SDK 与工具' },
   { key: '2', proto: 'OpenAI Responses', method: 'POST', path: '/v1/responses', client: 'Responses API 客户端' },
   { key: '3', proto: 'Anthropic Messages', method: 'POST', path: '/v1/messages', client: 'anthropic SDK' },
+  { key: '4', proto: '模型目录', method: 'GET', path: '/v1/models', client: '第三方 Agent 工具发现可用模型（OpenAI 兼容，返回已配置别名）' },
 ];
 
 function CodeBlock({ children }: { children: string }) {

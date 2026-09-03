@@ -111,7 +111,7 @@ frontend/                         # React 前端
 ## API 文档
 
 完整的前后端对接契约见 [docs/api-contract.md](docs/api-contract.md)。  
-管理 API Base URL: `/api/admin/v1`，网关端点: `/v1/chat/completions`, `/v1/responses`, `/v1/messages`。
+管理 API Base URL: `/api/admin/v1`，网关端点: `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages`, `GET /v1/models`（模型目录，OpenAI 兼容）。
 
 ## 构建与部署
 
