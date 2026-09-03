@@ -5,6 +5,7 @@ import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined,
   AuditOutlined,
+  BarChartOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
@@ -28,6 +29,7 @@ type MenuItem = Required<MenuProps>['items'][number];
 /** 侧边树形菜单（PRD 4.1）：key 即路由路径 */
 const MENU: MenuItem[] = [
   { key: '/', label: '首页', icon: <DashboardOutlined /> },
+  { key: '/usage/token', label: 'Token 用量', icon: <BarChartOutlined /> },
   {
     key: 'group-models',
     label: '模型管理',
@@ -87,6 +89,7 @@ const MENU: MenuItem[] = [
 /** 页面路由 → 展示名称（面包屑，PRD 4.2） */
 const PAGE_NAMES: Record<string, string> = {
   '/': '概览 Dashboard',
+  '/usage/token': 'Token 用量统计',
   '/providers': '供应商管理',
   '/models': '模型别名管理',
   '/models/failover': '故障转移设置',

@@ -482,6 +482,62 @@ export interface OpLogRow {
   effective: boolean;
 }
 
+// ============ Token 用量统计（API Key 维度看板） ============
+export interface TokenStatsFilter {
+  /** RFC3339；缺省后端默认近 30 天 */
+  start?: string;
+  /** RFC3339 */
+  end?: string;
+  api_key_id?: number;
+  /** 模型别名（模糊匹配） */
+  model?: string;
+  /** day（默认）| hour（短时窗用小时分桶） */
+  granularity?: 'day' | 'hour';
+}
+
+export interface TokenStatsSummary {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  keys_with_usage: number;
+  total_keys: number;
+}
+
+export interface TokenUsageByKey {
+  api_key_id: number;
+  api_key_label: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface TokenUsageByModel {
+  model: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface TokenUsageTrendPoint {
+  /** day 粒度：YYYY-MM-DD；hour 粒度：YYYY-MM-DD HH:00 */
+  bucket: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface TokenStatsData {
+  range: { start: string; end: string; granularity: 'day' | 'hour' };
+  summary: TokenStatsSummary;
+  by_key: TokenUsageByKey[];
+  by_model: TokenUsageByModel[];
+  trend: TokenUsageTrendPoint[];
+}
+
 // ============ 系统设置 (REQ-001) ============
 export interface SystemSettings {
   log_level: LogLevel;

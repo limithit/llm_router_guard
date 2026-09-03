@@ -64,6 +64,8 @@ import type {
   SecuritySettings,
   SystemSettings,
   SystemSettingsInput,
+  TokenStatsData,
+  TokenStatsFilter,
   User,
 } from './types';
 
@@ -209,6 +211,16 @@ export const opLogApi = {
     downloadFile('/audit/operations/export', {
       params: { format: 'csv', ...params },
       fallbackName: `operation-logs-${Date.now()}.csv`,
+    }),
+};
+
+// 8.3 Token 用量统计（API Key 维度看板）
+export const tokenStatsApi = {
+  get: (params: TokenStatsFilter) => http.get<TokenStatsData>('/token-stats', params),
+  exportCsv: (params: Omit<TokenStatsFilter, 'granularity'>) =>
+    downloadFile('/token-stats/export', {
+      params: { format: 'csv', ...params },
+      fallbackName: `token-stats-${Date.now()}.csv`,
     }),
 };
 

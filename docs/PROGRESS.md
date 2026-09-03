@@ -1,6 +1,26 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-02（第五轮存档：全量验证 + 进度归档）
+最后更新：2026-09-02（第六轮存档：API Key Token 用量统计看板）
+
+## 📝 本轮迭代变更（第六轮，2026-09-02）
+
+### 新增：API Key Token 用量统计看板
+- **后端**（`internal/admin/tokenstats.go`，新文件）：
+  - `GET /api/admin/v1/token-stats` — 汇总 + 按 Key 排行 + 按模型分布 + 时间趋势分桶
+  - `GET /api/admin/v1/token-stats/export` — 按 Key 用量 CSV 导出（含 BOM）
+  - 时间范围左闭右闭，缺省近 30 天；支持 `api_key_id`/`model` 过滤与 `day|hour` 粒度
+  - 跨数据库时间分桶：sqlite `strftime` / mysql `DATE_FORMAT` / postgres `to_char`
+  - by_key 合并 APIKey 表（含零用量 Key + 已删除 Key 的历史记录，按 total 降序）
+- **前端**（新 `pages/usage/TokenStats.tsx`）：
+  - 快捷时间预设（今天/近7天/近30天/本月/自定义）+ 自定义 RangePicker + Key/模型过滤 + 天/小时粒度
+  - 汇总卡片（总 Token / Prompt / Completion / 调用次数 / 有用量 Key 数）
+  - 历史趋势折线（Prompt vs Completion）+ 模型分布环形图 + Key 排行表（可排序 + 占比进度条）+ CSV 导出
+  - 路由 `/usage/token`，侧栏一级菜单「Token 用量」
+- **契约**：docs/api-contract.md 新增 8.3 Token 用量统计章节
+- **测试**：`tokenstats_test.go` 8 个用例全绿（聚合/Key过滤/模型过滤/历史趋势/小时粒度/默认30天窗口/已删除Key历史/CSV导出）
+
+### 踩坑记录
+- **GORM Scan 不展开嵌入结构体**：聚合结果 Scan 进 `struct{ APIKeyID uint; tokenAgg }`（tokenAgg 为匿名嵌入）时数值列全部为零。GORM 的 `Scan` 对匿名嵌入字段不做字段提升，必须展平所有列字段。
 
 ## 📊 当前状态总览
 
@@ -16,8 +36,8 @@
   | `internal/guard` | 32 | engine_test.go (450行) | 关键词 contains/exact/regex、PII 检测+脱敏、注入检测、输出过滤 block/replace/log、护栏禁用、Unicode、全链路集成、MaskForLog、FindingsJSON |
   | `internal/slb` | 22 | slb_test.go (502行) | 加权选择(SWRR)、权重分布统计、熔断器开/半开/恢复、故障转移全循环、PickIgnoringCircuit、HealthList、并发安全 |
   | `internal/quota` | 32 | quota_test.go (590行) | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 |
-  | `internal/admin` | 6 | providers_test.go (111行) | 供应商测试连接 + 模型列表解析 |
-  | **合计** | **92** | **4 文件 / 1,653 行** | — |
+  | `internal/admin` | 13 | providers_test.go (111行) + tokenstats_test.go (340行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV） |
+  | **合计** | **99** | **5 文件** | — |
 
 ### Git 状态
 - 当前分支：`dev`

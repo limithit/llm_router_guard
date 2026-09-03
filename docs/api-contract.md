@@ -229,6 +229,29 @@ CRUD `/rate-limits[/{id}]`；对象：
 ```
 `GET /audit/operations/export?format=csv&...` → CSV 文本。
 
+### 8.3 Token 用量统计（API Key 维度看板）
+`GET /token-stats?start=&end=&api_key_id=&model=&granularity=day|hour`
+- 数据源：`call_logs` 聚合。时间范围左闭右闭（`created_at`）；缺省 `start` 时默认统计近 30 天。
+- `granularity` 缺省 `day`；`hour` 按小时分桶（适合短时窗）。
+- `by_key`：每个 API Key 的 token 消耗（含零用量 Key，按 total 降序；已删除但仍有历史日志的 Key 也会以历史标签出现）。
+- `by_model`：按模型别名聚合的 token 消耗。
+- `trend`：按分桶（日/小时）聚合的用量时间序列，支持历史查询。
+响应 `data`：
+```json
+{
+  "range": { "start":"...", "end":"...", "granularity":"day" },
+  "summary": { "calls":123, "prompt_tokens":1000, "completion_tokens":2000,
+               "total_tokens":3000, "keys_with_usage":5, "total_keys":8 },
+  "by_key": [ { "api_key_id":1, "api_key_label":"team-a", "calls":10,
+                "prompt_tokens":100, "completion_tokens":200, "total_tokens":300 } ],
+  "by_model": [ { "model":"gpt-4", "calls":5, "prompt_tokens":100,
+                  "completion_tokens":200, "total_tokens":300 } ],
+  "trend": [ { "bucket":"2026-09-01", "calls":50, "prompt_tokens":1000,
+               "completion_tokens":2000, "total_tokens":3000 } ]
+}
+```
+`GET /token-stats/export?format=csv&<同上筛选>` → CSV 文本（按 Key 用量表，不包 envelope）。
+
 ---
 
 ## 9. 系统设置

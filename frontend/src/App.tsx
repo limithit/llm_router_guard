@@ -19,6 +19,7 @@ import RateLimits from './pages/quota/RateLimits';
 import QuotaAlerts from './pages/quota/QuotaAlerts';
 import CallLogs from './pages/audit/Calls';
 import Operations from './pages/audit/Operations';
+import TokenStats from './pages/usage/TokenStats';
 import GeneralSettings from './pages/settings/General';
 import ApiKeys from './pages/settings/ApiKeys';
 import SecuritySettings from './pages/settings/Security';
@@ -78,6 +79,8 @@ export default function App() {
                 {/* 审计日志 */}
                 <Route path="/audit/calls" element={<CallLogs />} />
                 <Route path="/audit/operations" element={<Operations />} />
+                {/* 用量统计 */}
+                <Route path="/usage/token" element={<TokenStats />} />
                 {/* 系统设置 */}
                 <Route path="/settings/general" element={<GeneralSettings />} />
                 <Route path="/settings/apikeys" element={<ApiKeys />} />

@@ -101,6 +101,10 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	api.GET("/audit/operations", s.AuthMiddleware(), s.listOpLogs)
 	api.GET("/audit/operations/export", s.AuthMiddleware(), s.exportOpLogs)
 
+	// Token 用量统计看板（API Key 维度）
+	api.GET("/token-stats", s.AuthMiddleware(), s.tokenStats)
+	api.GET("/token-stats/export", s.AuthMiddleware(), s.exportTokenStats)
+
 	api.GET("/settings", s.AuthMiddleware(), s.getGeneral)
 	api.PUT("/settings", s.AuthMiddleware(), s.saveGeneral)
 	api.GET("/settings/security", s.AuthMiddleware(), s.getSecurity)
