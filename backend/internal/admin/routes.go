@@ -23,7 +23,11 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	gw.POST("/chat/completions", gws.Handle(adapter.ProtoOpenAIChat))
 	gw.POST("/responses", gws.Handle(adapter.ProtoOpenAIResponses))
 	gw.POST("/messages", gws.Handle(adapter.ProtoAnthropic))
-	gw.GET("/models", gws.ListModels) // 模型目录（OpenAI 兼容），供第三方 Agent 工具发现可用模型
+	// 模型目录（OpenAI/Anthropic 字段并集）。兼容不同工具把 /models 拼到端点后的发现路径。
+	gw.GET("/models", gws.ListModels)
+	gw.GET("/responses/models", gws.ListModels)
+	gw.GET("/messages/models", gws.ListModels)
+	gw.GET("/chat/completions/models", gws.ListModels)
 
 	// 管理 API
 	api := r.Group("/api/admin/v1")
