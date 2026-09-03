@@ -333,7 +333,7 @@ ApiKey 对象：`{ "id":1,"name":"team-a","key_masked":"sk-ab****yz","remark":""
 - `POST /v1/chat/completions` — OpenAI Chat Completions（含 `stream:true` SSE）
 - `POST /v1/responses` — OpenAI Responses API
 - `POST /v1/messages` — Anthropic Messages（含 SSE）
-- `GET /v1/models` — 模型目录（OpenAI 兼容）：返回 `{"object":"list","data":[{"id":<别名>,"object":"model","owned_by":<供应商>}]}`，供第三方 Agent 工具发现可用模型；受 API Key 的模型限定过滤
+- `GET /v1/models` — 模型目录：返回 OpenAI 与 Anthropic 字段的并集 `{"object":"list","data":[{"id":<别名>,"object":"model","type":"model","display_name":<别名>,"owned_by":<供应商>,"created":0,"created_at":"1970-01-01T00:00:00Z"}],"has_more":false,"first_id":...,"last_id":...}`，使 OpenAI Chat、OpenAI Responses、Anthropic 三类 SDK 均可解析；受 API Key 的模型限定过滤
 
 请求中 `model` 字段填模型别名；网关按别名做 SLB/护栏/配额/审计，错误以对应协议风格返回
 （OpenAI: `{"error":{"message","type","code"}}`；Anthropic: `{"type":"error","error":{"type","message"}}`；拦截时 `type="content_policy_violation"` / `http 451`→ 统一 `invalid_request_error`+code=`content_filtered`）。
