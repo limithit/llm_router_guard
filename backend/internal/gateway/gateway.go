@@ -76,10 +76,10 @@ func clientError(c *gin.Context, proto adapter.Protocol, status int, msg, errTyp
 	c.Data(status, "application/json", adapter.ErrorJSON(proto, status, msg, errType, code))
 }
 
-// ListModels GET /v1/models — 返回网关已配置的模型别名，供第三方 Agent 工具发现可用模型。
-// 响应为 OpenAI 与 Anthropic 字段的并集（object/owned_by/created + type/display_name/created_at
-// + has_more/first_id/last_id 分页），使 OpenAI Chat、OpenAI Responses、Anthropic 三类 SDK 均可解析。
-// 受 API Key 的模型限定过滤。
+// ListModels GET /v1/models（及 /v1/{responses,messages,chat/completions}/models）
+// 返回网关已配置的模型别名，供第三方 Agent 工具发现可用模型。
+// 按协议返回干净 schema：路径含 /messages 或带 anthropic-version 头 → Anthropic 格式，
+// 否则 OpenAI 格式。受 API Key 的模型限定过滤。
 func (s *Server) ListModels(c *gin.Context) {
 	snap := s.mgr.Get()
 	rec := c.MustGet("apikey").(*model.APIKey) // AuthMiddleware 已注入
@@ -93,37 +93,42 @@ func (s *Server) ListModels(c *gin.Context) {
 	}
 	sort.Strings(names)
 
-	type modelObj struct {
-		ID          string `json:"id"`
-		Object      string `json:"object"`       // OpenAI
-		Type        string `json:"type"`         // Anthropic
-		DisplayName string `json:"display_name"` // Anthropic
-		OwnedBy     string `json:"owned_by"`     // OpenAI
-		Created     int64  `json:"created"`      // OpenAI（unix）
-		CreatedAt   string `json:"created_at"`   // Anthropic（RFC3339）
+	// Anthropic：路径含 /messages（如 /v1/messages/models）或客户端带 anthropic-version 头。
+	if strings.Contains(c.Request.URL.Path, "/messages") || c.GetHeader("anthropic-version") != "" {
+		type anthModel struct {
+			Type        string `json:"type"`
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			CreatedAt   string `json:"created_at"`
+		}
+		data := make([]anthModel, 0, len(names))
+		for _, name := range names {
+			data = append(data, anthModel{Type: "model", ID: name, DisplayName: name, CreatedAt: "1970-01-01T00:00:00Z"})
+		}
+		firstID, lastID := "", ""
+		if len(names) > 0 {
+			firstID, lastID = names[0], names[len(names)-1]
+		}
+		c.JSON(http.StatusOK, gin.H{"data": data, "has_more": false, "first_id": firstID, "last_id": lastID})
+		return
 	}
-	out := make([]modelObj, 0, len(names))
+
+	// OpenAI Chat / Responses
+	type oaiModel struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+		Created int64  `json:"created"`
+	}
+	data := make([]oaiModel, 0, len(names))
 	for _, name := range names {
 		owner := ""
 		if ups := snap.Aliases[name]; len(ups) > 0 {
 			owner = ups[0].ProviderName
 		}
-		out = append(out, modelObj{
-			ID: name, Object: "model", Type: "model",
-			DisplayName: name, OwnedBy: owner,
-			Created: 0, CreatedAt: "1970-01-01T00:00:00Z",
-		})
+		data = append(data, oaiModel{ID: name, Object: "model", OwnedBy: owner, Created: 0})
 	}
-	// first_id/last_id 供 Anthropic 分页；has_more=false 表示无更多页。
-	firstID, lastID := any(nil), any(nil)
-	if len(names) > 0 {
-		firstID, lastID = names[0], names[len(names)-1]
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list", // OpenAI
-		"data":   out,
-		"has_more": false, "first_id": firstID, "last_id": lastID, // Anthropic 分页
-	})
+	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
 }
 
 // AuthMiddleware 网关端点 API Key 认证（REQ-002）。
