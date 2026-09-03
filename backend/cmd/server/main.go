@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,6 +79,21 @@ func main() {
 	}
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	// 访问日志：方法/路径/状态/延迟/来源 IP，便于排查 404 等。
+	// 跳过静态资源与 SPA 回退（NoRoute 200）以降噪。
+	engine.Use(func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/assets/") {
+			return
+		}
+		if c.FullPath() == "" && c.Writer.Status() == http.StatusOK {
+			return
+		}
+		log.Printf("[access] %3d  %-6s %s  %s  %s",
+			c.Writer.Status(), c.Request.Method, path, time.Since(start), c.ClientIP())
+	})
 
 	adminServer := admin.New(gormDB, mgr, bl, mx, al, enc, cfg.JWTSecret, cfg.ListenPort)
 	gw := gateway.New(gormDB, mgr, bl, rl, qm, al, mx)
