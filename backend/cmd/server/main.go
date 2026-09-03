@@ -27,10 +27,15 @@ import (
 	"llmrouter/internal/runtime"
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
+	"llmrouter/internal/tokens"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// 预热 token 编码器（cl100k_base BPE）：后台下载/加载编码文件，
+	// 避免首个请求承担延迟；离线场景（TIKTOKEN_CACHE_DIR 缺失且无网络）会降级到启发式估算。
+	go tokens.Init()
 
 	// 数据库
 	gormDB, err := db.Open(cfg.DBType, cfg.DBDSN)

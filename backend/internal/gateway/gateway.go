@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -29,6 +28,7 @@ import (
 	"llmrouter/internal/runtime"
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
+	"llmrouter/internal/tokens"
 )
 
 type Server struct {
@@ -583,10 +583,10 @@ func (s *Server) runStreamGuardCheck(snap *runtime.Snapshot, sw *adapter.SSEWrit
 
 func estimateUsage(u adapter.Usage, input, output string) adapter.Usage {
 	if u.Prompt == 0 && input != "" {
-		u.Prompt = utf8.RuneCountInString(input)/2 + 1
+		u.Prompt = tokens.Count(input)
 	}
 	if u.Completion == 0 && output != "" {
-		u.Completion = utf8.RuneCountInString(output)/2 + 1
+		u.Completion = tokens.Count(output)
 	}
 	return u
 }

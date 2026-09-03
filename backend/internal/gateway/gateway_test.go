@@ -148,3 +148,26 @@ func TestForwardStream_ShortOutputClean_NoFalsePositive(t *testing.T) {
 		t.Errorf("response should not contain replacement message; body:\n%s", w.Body.String())
 	}
 }
+
+// TestEstimateUsage_Fallback 上游未返回 usage 时，应通过 tokens.Count 精确估算。
+func TestEstimateUsage_Fallback(t *testing.T) {
+	input := "Hello, this is a test input."
+	output := "And this is the model output."
+	u := adapter.Usage{Prompt: 0, Completion: 0}
+	got := estimateUsage(u, input, output)
+	if got.Prompt <= 0 {
+		t.Errorf("Prompt = %d, want > 0 for non-empty input", got.Prompt)
+	}
+	if got.Completion <= 0 {
+		t.Errorf("Completion = %d, want > 0 for non-empty output", got.Completion)
+	}
+}
+
+// TestEstimateUsage_PreserveUpstream 上游已返回 usage 时，不应覆盖。
+func TestEstimateUsage_PreserveUpstream(t *testing.T) {
+	u := adapter.Usage{Prompt: 42, Completion: 17}
+	got := estimateUsage(u, "any input", "any output")
+	if got.Prompt != 42 || got.Completion != 17 {
+		t.Errorf("estimateUsage(%+v) = %+v, want {42,17} preserved", u, got)
+	}
+}

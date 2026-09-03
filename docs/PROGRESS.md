@@ -19,6 +19,15 @@
 - **契约**：docs/api-contract.md 新增 8.3 Token 用量统计章节
 - **测试**：`tokenstats_test.go` 8 个用例全绿
 
+### 新增：Token 估算精度提升（tiktoken-go）
+- **新包**：`internal/tokens/tokens.go`
+  - 使用 `tiktoken-go`（cl100k_base 编码器）精确分词，替代原来的 `runeCount/2+1` 启发式估算
+  - 启动时后台预热（`main.go` 中 `go tokens.Init()`），避免首个请求延迟
+  - 编码器不可用（离线 + 无缓存）时自动降级为 CJK/ASCII 混合启发式估算
+  - 离线部署可设置 `TIKTOKEN_CACHE_DIR` 指向预下载的编码文件目录
+- **影响**：`gateway/estimateUsage` 改用 `tokens.Count`，上游未返回 usage 的流式/非流式请求都能更精确估算 token
+- **测试**：`tokens_test.go`（5 用例）+ `gateway_test.go`（2 用例），全绿
+
 ### 修复：流式输出护栏短输出漏检
 - **问题**：创建关键词 "Google" 后，模型输出未被拦截。
 - **根因**：`internal/gateway/forwardStream` 仅在累积输出长度 `>= threshold`（默认 256）时检测一次；短输出（< 256 字节）在流结束前永远到不了阈值，且循环结束后没有兜底检测，导致被完全放行。
@@ -48,13 +57,14 @@
   | `internal/slb` | 22 | slb_test.go (502行) | 加权选择(SWRR)、权重分布统计、熔断器开/半开/恢复、故障转移全循环、PickIgnoringCircuit、HealthList、并发安全 |
   | `internal/quota` | 32 | quota_test.go (590行) | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 |
   | `internal/admin` | 13 | providers_test.go (111行) + tokenstats_test.go (340行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV） |
-  | `internal/gateway` | 3 | gateway_test.go (160行) | 流式输出护栏：短输出兜底检测 / 阈值检测 / 正常输出不误拦截 |
-  | **合计** | **102** | **6 文件** | — |
+  | `internal/gateway` | 5 | gateway_test.go (180行) | 流式输出护栏：短输出兜底检测 / 阈值检测 / 正常输出不误拦截 + estimateUsage 回退与保留 |
+  | `internal/tokens` | 5 | tokens_test.go (70行) | Count 精确编码 / Estimate 启发式回退 / 空串边界 |
+  | **合计** | **107** | **7 文件** | — |
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：待提交（流式输出护栏短输出兜底修复）
-- 工作区：有变更（未提交）
+- 最新提交：`46da2b9 fix(gateway): add final output guard check for short streaming responses`
+- 工作区：干净
 
 ## 📝 已完成迭代历史
 
@@ -125,9 +135,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | # | 优先级 | 位置 | 问题 | 建议 |
 |---|--------|------|------|------|
 | 1 | P1 | `gateway/gateway.go` | request_id 未作为 `X-Request-ID` header 传给上游 | `forward()` 中生成 UUID 并设置 header |
-| 2 | P2 | `gateway/gateway.go:estimateUsage()` | 上游无 token 用量时 `rune_count/2` 粗估 | 集成 tiktoken-go 或按字符集区分系数 |
-| 3 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
-| 4 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
+| 2 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
+| 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
 
 ### 前端
 
@@ -144,7 +153,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | # | 任务 | 工作量 | 涉及文件 |
 |---|------|--------|---------|
 | 1 | X-Request-ID 转发给上游 | 小 | `gateway/gateway.go` |
-| 2 | Token 估算精度提升 (tiktoken-go) | 中等 | `gateway/gateway.go` |
+| 2 | ~~Token 估算精度提升 (tiktoken-go)~~ ✅ | — | **已完成**（2026-09-02） |
 | 3 | 上游健康检查定时任务 | 小 | 新 `runtime/health.go` 或 `slb/slb.go` |
 | 4 | 前端路由懒加载 | 小 | `frontend/src/App.tsx` + 各 page |
 
