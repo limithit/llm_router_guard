@@ -103,7 +103,10 @@ export default function Providers() {
       if (res.ok) {
         const extra = res.models?.length ? `，返回 ${res.models.length} 个模型` : '';
         message.success(`连接成功，延迟 ${res.latency_ms} ms${extra}`);
-        // 返回了模型列表 → 弹窗勾选导入为模型别名
+        // 连接成功但未返回模型列表 → 提示手动添加上游
+        if (!res.models || res.models.length === 0) {
+          message.info('该供应商未返回模型列表，请到「模型别名」页手动添加上游。');
+        }
         if (res.models && res.models.length) {
           setImportProvider(record);
           setModelList(res.models);
