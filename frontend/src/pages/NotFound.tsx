@@ -1,7 +1,9 @@
 import { Button, Result } from 'antd';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 export default function NotFound() {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -15,10 +17,10 @@ export default function NotFound() {
       <Result
         status="404"
         title="404"
-        subTitle="抱歉，您访问的页面不存在。"
+        subTitle={t('notFound.subTitle')}
         extra={
           <Link to="/">
-            <Button type="primary">返回首页</Button>
+            <Button type="primary">{t('notFound.backHome')}</Button>
           </Link>
         }
       />

@@ -2,10 +2,11 @@
 // 启用自动故障转移 / 重试次数 / 重试间隔策略 / 触发条件 / 熔断阈值与恢复时间
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { App, Button, Card, Form, InputNumber, Select, Switch } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import { failoverApi } from '../../api/endpoints';
-import { BACKOFF_OPTIONS } from '../../constants/dicts';
+import { BACKOFF_META, useDictOptions } from '../../constants/dicts';
 import type { BackoffStrategy } from '../../api/types';
 
 interface FailoverFormValues {
@@ -22,6 +23,8 @@ interface FailoverFormValues {
 const toStr = (v: number) => String(v);
 
 export default function Failover() {
+  const { t } = useTranslation();
+  const backoffOpts = useDictOptions('backoff', BACKOFF_META);
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<FailoverFormValues>();
@@ -58,7 +61,7 @@ export default function Failover() {
         circuit_reset_seconds: v.circuit_reset_seconds,
       }),
     onSuccess: () => {
-      message.success('故障转移策略已保存，热加载生效');
+      message.success(t('failover.saveOk'));
       queryClient.invalidateQueries({ queryKey: ['failover'] });
     },
     onError: () => undefined,
@@ -66,11 +69,11 @@ export default function Failover() {
 
   return (
     <PageContainer
-      title="故障转移设置"
-      description="当一个上游供应商失败 / 触发指定状态码时自动切换到其他上游（REQ-007）。"
+      title={t('failover.title')}
+      description={t('failover.desc')}
       extra={
         <Button type="primary" loading={saveMutation.isPending} onClick={() => form.submit()}>
-          保存配置
+          {t('failover.save')}
         </Button>
       }
     >
@@ -82,57 +85,57 @@ export default function Failover() {
           onFinish={(v) => saveMutation.mutate(v)}
           initialValues={{ trigger_status_codes: ['429', '500', '502', '503'] }}
         >
-          <Form.Item name="enabled" label="启用自动故障转移" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          <Form.Item name="enabled" label={t('failover.enabled')} valuePropName="checked">
+            <Switch checkedChildren={t('failover.on')} unCheckedChildren={t('failover.off')} />
           </Form.Item>
           <Form.Item
             name="retry_count"
-            label="重试次数"
-            rules={[{ required: true, message: '请输入重试次数' }]}
+            label={t('failover.retryCount')}
+            rules={[{ required: true, message: t('failover.retryCountReq') }]}
           >
             <InputNumber min={0} max={10} precision={0} style={{ width: 200 }} />
           </Form.Item>
           <Form.Item
             name="backoff"
-            label="重试间隔策略"
-            rules={[{ required: true, message: '请选择策略' }]}
+            label={t('failover.backoff')}
+            rules={[{ required: true, message: t('failover.backoffReq') }]}
           >
             <Select
               style={{ width: 260 }}
-              options={BACKOFF_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+              options={backoffOpts}
             />
           </Form.Item>
           <Form.Item
             name="retry_interval_ms"
-            label="重试间隔（毫秒）"
-            rules={[{ required: true, message: '请输入重试间隔' }]}
+            label={t('failover.retryInterval')}
+            rules={[{ required: true, message: t('failover.retryIntervalReq') }]}
           >
             <InputNumber min={50} step={50} precision={0} style={{ width: 200 }} />
           </Form.Item>
           <Form.Item
             name="trigger_status_codes"
-            label="触发条件（HTTP 状态码，回车添加）"
-            tooltip="上游返回这些状态码时触发故障转移，如 429/500/502/503"
-            rules={[{ required: true, message: '至少配置一个触发状态码' }]}
+            label={t('failover.trigger')}
+            tooltip={t('failover.triggerTooltip')}
+            rules={[{ required: true, message: t('failover.triggerReq') }]}
           >
             <Select
               mode="tags"
-              placeholder="输入状态码后回车，例如 429"
+              placeholder={t('failover.triggerPh')}
               tokenSeparators={[',', '，', ' ']}
               style={{ width: 400 }}
             />
           </Form.Item>
           <Form.Item
             name="circuit_failure_threshold"
-            label="熔断阈值（连续失败次数）"
-            rules={[{ required: true, message: '请输入熔断阈值' }]}
+            label={t('failover.circuitThreshold')}
+            rules={[{ required: true, message: t('failover.circuitThresholdReq') }]}
           >
             <InputNumber min={1} max={100} precision={0} style={{ width: 200 }} />
           </Form.Item>
           <Form.Item
             name="circuit_reset_seconds"
-            label="熔断恢复时间（秒）"
-            rules={[{ required: true, message: '请输入恢复时间' }]}
+            label={t('failover.circuitReset')}
+            rules={[{ required: true, message: t('failover.circuitResetReq') }]}
           >
             <InputNumber min={5} max={3600} precision={0} style={{ width: 200 }} />
           </Form.Item>

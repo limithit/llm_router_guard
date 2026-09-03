@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Switch, message } from 'antd';
+import i18n from '../i18n';
 
 interface StatusSwitchProps {
   checked: boolean;
@@ -30,7 +31,7 @@ export default function StatusSwitch({
     try {
       await onChange(next);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '操作失败');
+      message.error(e instanceof Error ? e.message : i18n.t('common.operationFailed'));
     } finally {
       setLoading(false);
     }

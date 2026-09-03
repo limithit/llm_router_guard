@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -25,6 +26,7 @@ import { DeleteOutlined, LineChartOutlined, MinusCircleOutlined, PlusOutlined } 
 import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
 import { modelApi, providerApi } from '../../api/endpoints';
+import { PROTOCOL_META, useDictLabel } from '../../constants/dicts';
 import { fmtTime, fmtNumber } from '../../utils/format';
 import type { ModelAlias, ModelStats, UpstreamInput } from '../../api/types';
 
@@ -36,6 +38,8 @@ interface ModelFormValues {
 }
 
 export default function Models() {
+  const { t } = useTranslation();
+  const protoLbl = useDictLabel('protocol');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -69,7 +73,7 @@ export default function Models() {
     mutationFn: (body: Parameters<typeof modelApi.create>[0]) =>
       editing ? modelApi.update(editing.id, body) : modelApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '模型别名已更新' : '模型别名已创建');
+      message.success(editing ? t('models.updated') : t('models.created'));
       setModalOpen(false);
       invalidate();
     },
@@ -79,7 +83,7 @@ export default function Models() {
   const deleteMutation = useMutation({
     mutationFn: modelApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -96,7 +100,7 @@ export default function Models() {
         weight: u.weight,
       })),
     });
-    message.success(enabled ? '已启用' : '已禁用');
+    message.success(enabled ? t('models.enabledOk') : t('models.disabledOk'));
     invalidate();
   };
 
@@ -142,25 +146,25 @@ export default function Models() {
 
   return (
     <PageContainer
-      title="模型别名管理"
-      description="将业务模型别名映射到多个上游供应商（加权 SLB）（REQ-006）。"
+      title={t('models.title')}
+      description={t('models.desc')}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新建模型别名
+          {t('models.add')}
         </Button>
       }
     >
       <Space style={{ marginBottom: 12 }}>
         <Input.Search
           allowClear
-          placeholder="按别名搜索"
+          placeholder={t('models.searchPh')}
           style={{ width: 260 }}
           onSearch={(v) => {
             setPage(1);
             setSearchText(v);
           }}
         />
-        <Button onClick={() => setSearchText('')}>重置</Button>
+        <Button onClick={() => setSearchText('')}>{t('common.reset')}</Button>
       </Space>
 
       <Table<ModelAlias>
@@ -170,9 +174,9 @@ export default function Models() {
         scroll={{ x: 900 }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 64, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '别名', dataIndex: 'alias', width: 160 },
+          { title: t('models.colAlias'), dataIndex: 'alias', width: 160 },
           {
-            title: '上游（供应商 / 模型名 × 权重）',
+            title: t('models.colUpstreams'),
             key: 'upstreams',
             render: (_: unknown, record: ModelAlias) => (
               <Space size={[4, 4]} wrap>
@@ -183,15 +187,15 @@ export default function Models() {
                     style={u.provider_enabled ? undefined : { opacity: 0.6 }}
                   >
                     {providerName(u.provider_id)} / {u.upstream_model} ×{u.weight}
-                    {!u.provider_enabled && '（已停用）'}
+                    {!u.provider_enabled && t('models.disabled')}
                   </Tag>
                 ))}
-                {record.upstreams.length === 0 ? <Typography.Text type="secondary">无上游</Typography.Text> : null}
+                {record.upstreams.length === 0 ? <Typography.Text type="secondary">{t('models.noUpstreams')}</Typography.Text> : null}
               </Space>
             ),
           },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: ModelAlias) => (
@@ -199,34 +203,34 @@ export default function Models() {
             ),
           },
           {
-            title: '备注',
+            title: t('models.colRemark'),
             dataIndex: 'remark',
             ellipsis: true,
             width: 120,
             render: (v: string) => v || '-',
           },
-          { title: '更新时间', dataIndex: 'updated_at', width: 160, render: (v: string) => fmtTime(v) },
+          { title: t('common.updatedAt'), dataIndex: 'updated_at', width: 160, render: (v: string) => fmtTime(v) },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 250,
             fixed: 'right',
             render: (_: unknown, record: ModelAlias) => (
               <Space>
                 <Button size="small" icon={<LineChartOutlined />} onClick={() => setStatsTarget(record)}>
-                  统计
+                  {t('models.stats')}
                 </Button>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除模型别名"
-                  description={`确认删除「${record.alias}」？`}
+                  title={t('models.deleteTitle')}
+                  description={t('models.deleteConfirm', { alias: record.alias })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -238,7 +242,7 @@ export default function Models() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -247,7 +251,7 @@ export default function Models() {
       />
 
       <Modal
-        title={editing ? `编辑模型别名：${editing.alias}` : '新建模型别名'}
+        title={editing ? t('models.editTitle', { alias: editing.alias }) : t('models.createTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleOk}
@@ -259,22 +263,22 @@ export default function Models() {
           <Space size={16} align="start" wrap>
             <Form.Item
               name="alias"
-              label="别名名称"
-              rules={[{ required: true, message: '请输入别名' }]}
+              label={t('models.aliasLabel')}
+              rules={[{ required: true, message: t('models.aliasReq') }]}
             >
-              <Input placeholder="例如 gpt-4" style={{ width: 240 }} />
+              <Input placeholder={t('models.aliasPh')} style={{ width: 240 }} />
             </Form.Item>
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
               <Switch />
             </Form.Item>
-            <Form.Item name="remark" label="备注" style={{ width: 200 }}>
-              <Input placeholder="备注（可选）" />
+            <Form.Item name="remark" label={t('common.remark')} style={{ width: 200 }}>
+              <Input placeholder={t('models.remarkPh')} />
             </Form.Item>
           </Space>
 
-          <Typography.Text strong>上游供应商与权重</Typography.Text>
+          <Typography.Text strong>{t('models.upstreamsTitle')}</Typography.Text>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-            按权重比例分发流量（权重为正整数），可添加多个上游。
+            {t('models.upstreamsHint')}
           </Typography.Paragraph>
           <Form.List name="upstreams">
             {(fields, { add, remove }) => (
@@ -283,34 +287,34 @@ export default function Models() {
                   <Space key={field.key} align="baseline" wrap style={{ marginBottom: 4 }}>
                     <Form.Item
                       name={[field.name, 'provider_id']}
-                      rules={[{ required: true, message: '选择供应商' }]}
+                      rules={[{ required: true, message: t('models.providerReq') }]}
                     >
                       <Select
                         showSearch
                         optionFilterProp="label"
-                        placeholder="供应商"
+                        placeholder={t('models.providerPh')}
                         style={{ width: 190 }}
                         options={(providersData?.items ?? []).map((p) => ({
                           value: p.id,
-                          label: `${p.name}（${p.protocol}）`,
+                          label: `${p.name} (${protoLbl(p.protocol)})`,
                           disabled: !p.enabled,
                         }))}
                       />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'upstream_model']}
-                      rules={[{ required: true, message: '上游模型名' }]}
+                      rules={[{ required: true, message: t('models.upstreamModelReq') }]}
                     >
-                      <Input placeholder="上游模型名，如 gpt-4-0613" style={{ width: 230 }} />
+                      <Input placeholder={t('models.upstreamModelPh')} style={{ width: 230 }} />
                     </Form.Item>
                     <Form.Item
                       name={[field.name, 'weight']}
                       rules={[
-                        { required: true, message: '权重' },
-                        { type: 'number', min: 1, message: '正整数' },
+                        { required: true, message: t('models.weightReq') },
+                        { type: 'number', min: 1, message: t('models.weightInt') },
                       ]}
                     >
-                      <InputNumber min={1} precision={0} placeholder="权重" style={{ width: 100 }} />
+                      <InputNumber min={1} precision={0} placeholder={t('models.weightPh')} style={{ width: 100 }} />
                     </Form.Item>
                     <MinusCircleOutlined onClick={() => remove(field.name)} />
                   </Space>
@@ -321,7 +325,7 @@ export default function Models() {
                   icon={<PlusOutlined />}
                   onClick={() => add({ provider_id: undefined, upstream_model: '', weight: 1 })}
                 >
-                  添加上游
+                  {t('models.addUpstream')}
                 </Button>
               </>
             )}
@@ -330,7 +334,7 @@ export default function Models() {
       </Modal>
 
       <Drawer
-        title={`调用统计：${statsTarget?.alias ?? ''}`}
+        title={t('models.statsTitle', { alias: statsTarget?.alias ?? '' })}
         open={Boolean(statsTarget)}
         onClose={() => setStatsTarget(null)}
         width={420}
@@ -342,14 +346,14 @@ export default function Models() {
               bordered
               size="small"
               items={[
-                { key: 'alias', label: '别名', children: statsTarget.alias },
+                { key: 'alias', label: t('models.colAlias'), children: statsTarget.alias },
                 {
                   key: 'upstreams',
-                  label: '上游数',
-                  children: `${statsTarget.upstreams.length} 个`,
+                  label: t('models.upstreamCount'),
+                  children: t('models.upstreamCountUnit', { n: statsTarget.upstreams.length }),
                 },
-                { key: 'enabled', label: '状态', children: statsTarget.enabled ? '启用' : '停用' },
-                { key: 'created', label: '创建时间', children: fmtTime(statsTarget.created_at) },
+                { key: 'enabled', label: t('models.statusLabel'), children: statsTarget.enabled ? t('models.on') : t('models.off') },
+                { key: 'created', label: t('common.createdAt'), children: fmtTime(statsTarget.created_at) },
               ]}
             />
             <div
@@ -360,16 +364,16 @@ export default function Models() {
                 marginTop: 16,
               }}
             >
-              <Statistic title="近 7 天调用" value={fmtNumber(stats?.calls_7d)} loading={!stats} />
-              <Statistic title="今日调用" value={fmtNumber(stats?.calls_today)} loading={!stats} />
+              <Statistic title={t('models.calls7d')} value={fmtNumber(stats?.calls_7d)} loading={!stats} />
+              <Statistic title={t('models.callsToday')} value={fmtNumber(stats?.calls_today)} loading={!stats} />
               <Statistic
-                title="近 7 天拦截"
+                title={t('models.blocked7d')}
                 value={fmtNumber(stats?.blocked_7d)}
                 valueStyle={{ color: '#ff4d4f' }}
                 loading={!stats}
               />
               <Statistic
-                title="平均延迟"
+                title={t('models.avgLatency')}
                 value={stats?.avg_latency_ms}
                 suffix="ms"
                 loading={!stats}

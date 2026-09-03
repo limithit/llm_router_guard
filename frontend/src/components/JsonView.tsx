@@ -1,4 +1,5 @@
 import { Typography } from 'antd';
+import i18n from '../i18n';
 
 interface JsonViewProps {
   /** JSON 字符串或对象 */
@@ -15,7 +16,7 @@ export default function JsonView({ value, maxHeight = 320 }: JsonViewProps) {
   if (value != null) {
     if (typeof value === 'string') {
       if (value.trim() === '') {
-        text = '(空)';
+        text = i18n.t('common.empty');
       } else {
         try {
           text = JSON.stringify(JSON.parse(value), null, 2);

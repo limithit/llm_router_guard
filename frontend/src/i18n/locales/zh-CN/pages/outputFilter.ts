@@ -1,0 +1,17 @@
+export default {
+  'outputFilter.title': '输出过滤配置',
+  'outputFilter.desc': '配置模型输出内容的过滤策略（REQ-011）。',
+  'outputFilter.save': '保存配置',
+  'outputFilter.saveOk': '输出过滤配置已保存，热加载生效',
+  'outputFilter.enabled': '启用输出检测',
+  'outputFilter.on': '启用',
+  'outputFilter.off': '停用',
+  'outputFilter.strategy': '违规响应策略',
+  'outputFilter.strategyReq': '请选择违规响应策略',
+  'outputFilter.safeMessage': '自定义安全提示语模板',
+  'outputFilter.safeMessageReq': '请输入安全提示语模板',
+  'outputFilter.safeMessagePh': '抱歉，该回答包含不当内容。',
+  'outputFilter.chunkThreshold': '流式检测阈值（字符）',
+  'outputFilter.chunkTooltip': '流式输出累积达到该字符数时进行一次检测',
+  'outputFilter.chunkReq': '请输入流式检测阈值',
+};

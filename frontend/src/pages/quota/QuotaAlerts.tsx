@@ -2,10 +2,11 @@
 // 预警阈值（80/95% 等）/ 通知方式（页面内通知 / Webhook）/ 通知接收人
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { App, Button, Card, Form, Input, Select, Switch } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import { quotaAlertApi } from '../../api/endpoints';
-import { ALERT_CHANNEL_OPTIONS } from '../../constants/dicts';
+import { ALERT_CHANNEL_META, useDictOptions } from '../../constants/dicts';
 import type { AlertChannel } from '../../api/types';
 
 interface AlertFormValues {
@@ -20,6 +21,8 @@ interface AlertFormValues {
 const toStr = (v: number) => String(v);
 
 export default function QuotaAlerts() {
+  const { t } = useTranslation();
+  const channelOpts = useDictOptions('alertChannel', ALERT_CHANNEL_META);
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<AlertFormValues>();
@@ -53,7 +56,7 @@ export default function QuotaAlerts() {
         receivers: v.receivers?.trim() || '',
       }),
     onSuccess: () => {
-      message.success('配额预警配置已保存，热加载生效');
+      message.success(t('quotaAlerts.saveOk'));
       queryClient.invalidateQueries({ queryKey: ['quota-alerts'] });
     },
     onError: () => undefined,
@@ -61,11 +64,11 @@ export default function QuotaAlerts() {
 
   return (
     <PageContainer
-      title="配额预警配置"
-      description="配额使用率达到阈值时触发通知（REQ-014）。"
+      title={t('quotaAlerts.title')}
+      description={t('quotaAlerts.desc')}
       extra={
         <Button type="primary" loading={saveMutation.isPending} onClick={() => form.submit()}>
-          保存配置
+          {t('quotaAlerts.save')}
         </Button>
       }
     >
@@ -76,32 +79,32 @@ export default function QuotaAlerts() {
           onFinish={(v) => saveMutation.mutate(v)}
           initialValues={{ thresholds: ['80', '95'], channel: 'ui' }}
         >
-          <Form.Item name="enabled" label="启用配额预警" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          <Form.Item name="enabled" label={t('quotaAlerts.enabled')} valuePropName="checked">
+            <Switch checkedChildren={t('quotaAlerts.on')} unCheckedChildren={t('quotaAlerts.off')} />
           </Form.Item>
           <Form.Item
             name="thresholds"
-            label="预警阈值（百分比，回车添加多个）"
-            tooltip="如 80、95，使用率首次越过阈值时触发一次通知"
-            rules={[{ required: true, message: '请至少配置一个阈值' }]}
+            label={t('quotaAlerts.thresholds')}
+            tooltip={t('quotaAlerts.thresholdsTooltip')}
+            rules={[{ required: true, message: t('quotaAlerts.thresholdsReq') }]}
           >
             <Select
               mode="tags"
-              placeholder="输入百分比后回车，例如 80"
+              placeholder={t('quotaAlerts.thresholdsPh')}
               tokenSeparators={[',', '，', ' ']}
               style={{ width: 300 }}
             />
           </Form.Item>
-          <Form.Item name="channel" label="通知方式" rules={[{ required: true }]}>
-            <Select style={{ width: 220 }} options={ALERT_CHANNEL_OPTIONS} />
+          <Form.Item name="channel" label={t('quotaAlerts.channel')} rules={[{ required: true }]}>
+            <Select style={{ width: 220 }} options={channelOpts} />
           </Form.Item>
           {channel === 'webhook' ? (
             <Form.Item
               name="webhook_url"
               label="Webhook URL"
               rules={[
-                { required: true, message: '选择 Webhook 通知时必须填写 URL' },
-                { type: 'url', message: '请输入合法的 URL' },
+                { required: true, message: t('quotaAlerts.webhookUrlReq') },
+                { type: 'url', message: t('quotaAlerts.urlInvalid') },
               ]}
             >
               <Input placeholder="https://hooks.example.com/xxx" />
@@ -109,10 +112,10 @@ export default function QuotaAlerts() {
           ) : null}
           <Form.Item
             name="receivers"
-            label="通知接收人"
-            tooltip="接收人标识，多个以逗号分隔"
+            label={t('quotaAlerts.receivers')}
+            tooltip={t('quotaAlerts.receiversTooltip')}
           >
-            <Input placeholder="例如 admin@example.com, ops@example.com" />
+            <Input placeholder={t('quotaAlerts.receiversPh')} />
           </Form.Item>
         </Form>
       </Card>

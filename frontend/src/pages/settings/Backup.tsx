@@ -2,6 +2,7 @@
 // 手动备份（全配置表 JSON）/ 下载 / 从备份或粘贴 JSON 恢复 / 查看历史 / 删除
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   App,
@@ -21,6 +22,7 @@ import { fmtBytes, fmtTime } from '../../utils/format';
 import type { BackupItem } from '../../api/types';
 
 export default function Backup() {
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -37,7 +39,7 @@ export default function Backup() {
   const createMutation = useMutation({
     mutationFn: () => backupApi.create(),
     onSuccess: () => {
-      message.success('备份完成');
+      message.success(t('backup.created'));
       invalidate();
     },
     onError: () => undefined,
@@ -47,8 +49,8 @@ export default function Backup() {
     mutationFn: backupApi.restore,
     onSuccess: () => {
       modal.success({
-        title: '恢复完成',
-        content: '配置已从备份恢复并触发热加载，≤3 秒内生效。',
+        title: t('backup.restoreOk'),
+        content: t('backup.restoreOkContent'),
       });
       setPasteOpen(false);
       setPasteContent('');
@@ -61,7 +63,7 @@ export default function Backup() {
   const deleteMutation = useMutation({
     mutationFn: backupApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -69,9 +71,9 @@ export default function Backup() {
 
   const confirmRestore = (id?: number, content?: string) => {
     modal.confirm({
-      title: '确认恢复配置？',
-      content: '恢复将覆盖当前全部配置（供应商/模型别名/护栏/配额/限流/API Key/系统设置），且立即生效。',
-      okText: '确认恢复',
+      title: t('backup.confirmTitle'),
+      content: t('backup.confirmContent'),
+      okText: t('backup.confirmOk'),
       okButtonProps: { danger: true },
       onOk: () => restoreMutation.mutateAsync(id != null ? { id } : { content }),
     });
@@ -79,12 +81,12 @@ export default function Backup() {
 
   return (
     <PageContainer
-      title="数据备份"
-      description="备份并恢复全部配置数据（REQ-019）。备份为 JSON 文件，包含所有配置表。"
+      title={t('backup.title')}
+      description={t('backup.desc')}
       extra={
         <Space>
           <Button icon={<CloudUploadOutlined />} onClick={() => setPasteOpen(true)}>
-            从 JSON 恢复
+            {t('backup.restoreJson')}
           </Button>
           <Button
             type="primary"
@@ -92,7 +94,7 @@ export default function Backup() {
             loading={createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
-            立即备份
+            {t('backup.create')}
           </Button>
         </Space>
       }
@@ -103,42 +105,42 @@ export default function Backup() {
         dataSource={data?.items ?? []}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '文件名', dataIndex: 'filename' },
-          { title: '大小', dataIndex: 'size_bytes', width: 110, render: fmtBytes },
-          { title: '创建时间', dataIndex: 'created_at', width: 180, render: fmtTime },
+          { title: t('backup.colFilename'), dataIndex: 'filename' },
+          { title: t('backup.colSize'), dataIndex: 'size_bytes', width: 110, render: fmtBytes },
+          { title: t('common.createdAt'), dataIndex: 'created_at', width: 180, render: fmtTime },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 260,
             fixed: 'right',
             render: (_: unknown, row: BackupItem) => (
               <Space>
                 <Button size="small" icon={<DownloadOutlined />} onClick={() => backupApi.download(row.id)}>
-                  下载
+                  {t('backup.download')}
                 </Button>
                 <Button size="small" onClick={() => confirmRestore(row.id)}>
-                  恢复
+                  {t('backup.restore')}
                 </Button>
                 <Popconfirm
-                  title="删除备份"
-                  description={`确认删除「${row.filename}」？`}
+                  title={t('backup.deleteTitle')}
+                  description={t('backup.deleteConfirm', { filename: row.filename })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(row.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
             ),
           },
         ]}
-        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{ pageSize: 10, showTotal: (total) => t('common.total', { total }) }}
       />
 
       {/* 从 JSON 文本/文件恢复 */}
       <Modal
-        title="从备份 JSON 恢复"
+        title={t('backup.pasteTitle')}
         open={pasteOpen}
         width={640}
         onCancel={() => {
@@ -147,7 +149,7 @@ export default function Backup() {
         }}
         footer={[
           <Button key="cancel" onClick={() => setPasteOpen(false)}>
-            取消
+            {t('common.cancel')}
           </Button>,
           <Button
             key="ok"
@@ -157,14 +159,14 @@ export default function Backup() {
             disabled={!fileContent && pasteContent.trim() === ''}
             onClick={() => confirmRestore(undefined, fileContent?.text ?? pasteContent)}
           >
-            开始恢复
+            {t('backup.start')}
           </Button>,
         ]}
       >
         <Alert
           type="warning"
           showIcon
-          message="恢复将覆盖当前全部配置并立即生效，请谨慎操作。"
+          message={t('backup.pasteWarn')}
           style={{ marginBottom: 12 }}
         />
         <Upload.Dragger
@@ -179,17 +181,17 @@ export default function Backup() {
           }}
           onRemove={() => setFileContent(null)}
         >
-          <p style={{ margin: '8px 0' }}>点击或拖拽备份 JSON 文件到此处</p>
+          <p style={{ margin: '8px 0' }}>{t('backup.dropHint')}</p>
         </Upload.Dragger>
         {fileContent ? (
           <Tag color="blue" style={{ marginTop: 8 }}>
-            已选择：{fileContent.name}
+            {t('backup.selected', { name: fileContent.name })}
           </Tag>
         ) : (
           <Input.TextArea
             rows={8}
             style={{ marginTop: 12 }}
-            placeholder="或直接粘贴备份 JSON 内容"
+            placeholder={t('backup.pastePh')}
             value={pasteContent}
             onChange={(e) => setPasteContent(e.target.value)}
           />

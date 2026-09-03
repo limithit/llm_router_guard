@@ -1,6 +1,32 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-03（第七轮：修复 Token 统计"成功日志有记录但用量不计数"的时区根因）
+最后更新：2026-09-03（第八轮：前端 i18n 中英文切换，纯前端改造）
+
+##  本轮迭代变更（第八轮）
+
+### 新增：前端 i18n（中文 / English 切换）
+- **范围**：纯前端。后端 envelope 文案（Go `message` 字段）保持中文不动，用户数据/代码注释不翻译。
+- **依赖**：`i18next@^26.4.1` + `react-i18next@^17.0.13`。
+- **架构**（`frontend/src/i18n/`）：
+  - `index.ts`：初始化 + `import.meta.glob('./locales/*/pages/*.ts', { eager: true })` 按语言目录整体挂载；`setLanguage()` 写 localStorage（`llm-router-lang`）→ `i18n.changeLanguage`；`languageChanged` 钩子同步 dayjs locale + `document.documentElement.lang` + `document.title`。
+  - 初始语言：localStorage → `navigator.language` 前缀 `zh` → 默认 zh-CN。
+  - 语言文件分三类：`common.ts`（通用动词/状态/单位/校验，956 个 key 的公共部分）、`menu.ts` + `dicts.ts`（菜单名 + 14 个字典命名空间的全部枚举值标签）、`pages/*.ts`（每页一个扁平 `{ 'prefix.key': 'value' }` 文件，zh/en 各一套，key 严格对齐）。
+- **字典体系重构**（`constants/dicts.ts`）：
+  - 旧 API（`XXX_MAP`/`XXX_OPTIONS`/`labelOf`/`colorOf` 静态中文）→ 新 API：`XXX_META`（value+color）+ `useDictOptions(ns, meta)`（返回本地化 Select options）+ `useDictLabel(ns)`（返回 `(v) => string`，无翻译时回退原值）+ `colorOf/dictColor(metas, value)`。
+  - 14 个字典命名空间：protocol / keywordCategory / matchMode / action / quotaType / period / overAction / callStatus / logLevel / violationStrategy / alertChannel / backoff / piiCategory / opAction / opModule，key 模式 `dicts.<ns>.<value>`。
+- **antd/dayjs 联动**：`App.tsx` 中 `ConfigProvider locale` 随 `i18n.language` 切换 zhCN/enUS；时间格式化（`utils/format.ts` 的 fmtTime/fmtDuration/fmtNumber）随语言切换；axios 拦截器兜底文案走 `i18n.t`。
+- **语言切换入口**：`components/LanguageSwitch.tsx`（图标+当前语言下拉），放在 MainLayout 顶栏；登录页（MainLayout 外）固定在页面右上角。
+- **页面覆盖**（22 个页面全部转换，组件内中文字面量清零，仅剩注释与示例数据）：
+  - Login / NotFound / Dashboard / Help / TokenStats / Keywords / OutputFilter / PiiRules / InjectionRules / Providers / Models / Failover / Quotas / RateLimits / QuotaAlerts / Calls / Operations / General / ApiKeys / Security / ConfigStatus / RuntimeStatus / Backup / AccountSecurity
+- **校验**：
+  - `tsc --noEmit` 零错误；`vite build` 成功（dist 1,771 KB / gzip 551 KB，含 i18next 运行时 + 双语词表）。
+  - 词表一致性脚本核对：zh/en 各 956 key，双向零缺失、零重复。
+- **文档**：`docs/i18n-frontend.md` 使用规范（命名空间、旧→新字典 API 映射、新页面接入步骤）。
+
+### 踩坑记录
+- **`showTotal: (t) => ...` 参数名遮蔽**：antd Table 的 showTotal 回调参数与 `useTranslation()` 的 `t` 同名，多个页面（原代码）用 `(t)` 作参数；本次统一改为 `(total)`，否则翻译函数被覆盖。
+- **i18next 插值 + JSX 片段**：帮助页等长文档段用 `t('key', { c1: <Text code>...</Text> })` 传 ReactNode 插值，避免把整段 HTML 塞进 JSON 词表。
+- **子代理不可用**：本轮所有子代理（subagent）均陷入重复读文件的死循环、零文件修改，全部工作改为主线程直接执行。
 
 ##  本轮迭代变更（第七轮）
 
@@ -88,8 +114,8 @@
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：`9d4bbc7 docs: how to switch DB between sqlite / mysql / postgres`
-- 工作区：第七轮变更待提交（`admin/audit.go`、`admin/tokenstats.go`、`admin/tokenstats_test.go`、`.gitignore`、`docs/PROGRESS.md`）
+- 最新提交：见 `git log`（第八轮 i18n 提交为本节变更）
+- 工作区：第八轮变更（前端 i18n 全套：`src/i18n/`、`LanguageSwitch.tsx`、22 页面 + 共享组件改造、`docs/i18n-frontend.md`、`package*.json`、`.gitignore`）
 
 ## 📝 已完成迭代历史
 

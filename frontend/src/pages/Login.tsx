@@ -3,10 +3,12 @@
 // 支持 totp_code 或 recovery_code 完成验证；need_bind_mfa 时引导跳转 /account/security
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Checkbox, Form, Input, Space, Steps, Typography, message } from 'antd';
 import { LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons';
 import { authApi } from '../api/endpoints';
 import { isLoggedIn, useAuthStore } from '../store/auth';
+import LanguageSwitch from '../components/LanguageSwitch';
 import type { LoginBody } from '../api/types';
 
 interface LoginFormValues {
@@ -20,6 +22,7 @@ interface MfaFormValues {
 }
 
 export default function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
@@ -41,7 +44,7 @@ export default function Login() {
       if ('token' in res && res.token) {
         setAuth(res.token, res.user);
         if (res.need_bind_mfa) {
-          message.warning('检测到您尚未绑定 MFA，请先完成绑定以提升账户安全');
+          message.warning(t('login.needBindMfa'));
           navigate('/account/security', { replace: true });
         } else {
           navigate('/', { replace: true });
@@ -54,7 +57,7 @@ export default function Login() {
         setStep(1);
         return;
       }
-      message.error('登录响应异常，请重试');
+      message.error(t('login.loginResponseInvalid'));
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +72,7 @@ export default function Login() {
   const onMfaFinish = async (values: MfaFormValues) => {
     const code = values.code.trim();
     if (!code) {
-      message.warning('请输入验证码或恢复码');
+      message.warning(t('login.mfaCodeMissing'));
       return;
     }
     await doLogin({
@@ -89,46 +92,50 @@ export default function Login() {
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #0f1c2e 0%, #1d3a5f 60%, #2b5876 100%)',
         padding: 16,
+        position: 'relative',
       }}
     >
+      <div style={{ position: 'absolute', top: 16, right: 24 }}>
+        <LanguageSwitch />
+      </div>
       <Card style={{ width: 420, boxShadow: '0 8px 32px rgba(0,0,0,.25)' }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div style={{ textAlign: 'center' }}>
             <SafetyCertificateOutlined style={{ fontSize: 40, color: '#1677ff' }} />
             <Typography.Title level={3} style={{ marginTop: 8, marginBottom: 0 }}>
-              AI 网关管理平台
+              {t('login.title')}
             </Typography.Title>
-            <Typography.Text type="secondary">AI Gateway & Model Guardrails 管理后台</Typography.Text>
+            <Typography.Text type="secondary">{t('login.subtitle')}</Typography.Text>
           </div>
 
           <Steps
             size="small"
             current={step}
-            items={[{ title: '账号密码' }, { title: 'MFA 验证' }]}
+            items={[{ title: t('login.stepCredentials') }, { title: t('login.stepMfa') }]}
           />
 
           {step === 0 ? (
             <Form<LoginFormValues> layout="vertical" onFinish={onCredentialsFinish} requiredMark={false}>
               <Form.Item
                 name="username"
-                label="用户名"
-                rules={[{ required: true, message: '请输入用户名' }]}
+                label={t('login.username')}
+                rules={[{ required: true, message: t('login.usernameRequired') }]}
               >
-                <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" />
+                <Input prefix={<UserOutlined />} placeholder={t('login.username')} autoComplete="username" />
               </Form.Item>
               <Form.Item
                 name="password"
-                label="密码"
-                rules={[{ required: true, message: '请输入密码' }]}
+                label={t('login.password')}
+                rules={[{ required: true, message: t('login.passwordRequired') }]}
               >
                 <Input.Password
                   prefix={<LockOutlined />}
-                  placeholder="密码"
+                  placeholder={t('login.password')}
                   autoComplete="current-password"
                 />
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={submitting}>
-                登 录
+                {t('login.submit')}
               </Button>
             </Form>
           ) : (
@@ -137,27 +144,27 @@ export default function Login() {
                 type="info"
                 showIcon
                 style={{ marginBottom: 16 }}
-                message="账户已开启两步验证"
-                description="请输入身份验证器中的 6 位动态验证码；如需使用备用恢复码，请勾选下方选项。"
+                message={t('login.mfaBannerTitle')}
+                description={t('login.mfaBannerDesc')}
               />
               <Form.Item
                 name="code"
-                label={useRecovery ? '恢复码' : '动态验证码'}
-                rules={[{ required: true, message: useRecovery ? '请输入恢复码' : '请输入动态验证码' }]}
+                label={useRecovery ? t('login.recoveryCodeLabel') : t('login.mfaCodeLabel')}
+                rules={[{ required: true, message: useRecovery ? t('login.recoveryCodeRequired') : t('login.mfaCodeRequired') }]}
               >
                 <Input
-                  placeholder={useRecovery ? '例如：xxxx-xxxx-xxxx' : '6 位数字'}
+                  placeholder={useRecovery ? t('login.recoveryCodePlaceholder') : t('login.mfaCodePlaceholder')}
                   maxLength={useRecovery ? 32 : 6}
                   autoFocus
                 />
               </Form.Item>
               <Form.Item>
                 <Checkbox checked={useRecovery} onChange={(e) => setUseRecovery(e.target.checked)}>
-                  使用恢复码登录
+                  {t('login.useRecovery')}
                 </Checkbox>
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={submitting}>
-                验证并登录
+                {t('login.verifyAndLogin')}
               </Button>
               <Button
                 type="link"
@@ -167,7 +174,7 @@ export default function Login() {
                   setUseRecovery(false);
                 }}
               >
-                返回上一步
+                {t('login.backToPrevStep')}
               </Button>
             </Form>
           )}

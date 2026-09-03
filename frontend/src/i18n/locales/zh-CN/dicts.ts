@@ -1,0 +1,85 @@
+export default {
+  'dicts.protocol.openai_chat': 'OpenAI Chat Completions',
+  'dicts.protocol.openai_responses': 'OpenAI Responses',
+  'dicts.protocol.anthropic': 'Anthropic Messages',
+
+  'dicts.keywordCategory.political': '涉政',
+  'dicts.keywordCategory.porn': '色情',
+  'dicts.keywordCategory.violence': '暴力',
+  'dicts.keywordCategory.illegal': '违法',
+  'dicts.keywordCategory.discrimination': '歧视',
+  'dicts.keywordCategory.custom': '自定义',
+
+  'dicts.matchMode.contains': '包含匹配',
+  'dicts.matchMode.exact': '精确匹配',
+  'dicts.matchMode.regex': '正则匹配',
+
+  'dicts.action.block': '拦截',
+  'dicts.action.warn': '告警',
+  'dicts.action.log': '仅记录',
+  'dicts.action.mask': '脱敏',
+
+  'dicts.quotaType.requests': '请求次数',
+  'dicts.quotaType.tokens': 'Token 数',
+
+  'dicts.period.day': '按天',
+  'dicts.period.week': '按周',
+  'dicts.period.month': '按月',
+
+  'dicts.overAction.reject': '拒绝请求',
+  'dicts.overAction.degrade': '降级到其他模型',
+
+  'dicts.callStatus.ok': '成功',
+  'dicts.callStatus.error': '错误',
+  'dicts.callStatus.blocked': '拦截',
+  'dicts.callStatus.rate_limited': '限流',
+  'dicts.callStatus.quota_exceeded': '超配额',
+
+  'dicts.logLevel.debug': 'debug',
+  'dicts.logLevel.info': 'info',
+  'dicts.logLevel.warn': 'warn',
+  'dicts.logLevel.error': 'error',
+
+  'dicts.violationStrategy.replace': '替换为安全提示语',
+  'dicts.violationStrategy.block': '阻断输出',
+  'dicts.violationStrategy.log': '仅记录',
+
+  'dicts.alertChannel.ui': '页面内通知',
+  'dicts.alertChannel.webhook': 'Webhook',
+
+  'dicts.backoff.fixed': '固定间隔',
+  'dicts.backoff.exponential': '指数退避',
+
+  'dicts.piiCategory.phone': '手机号',
+  'dicts.piiCategory.id_card': '身份证号',
+  'dicts.piiCategory.email': '邮箱',
+  'dicts.piiCategory.bank_card': '银行卡号',
+  'dicts.piiCategory.address': '地址',
+  'dicts.piiCategory.custom': '自定义',
+
+  'dicts.opAction.create': '创建',
+  'dicts.opAction.update': '修改',
+  'dicts.opAction.delete': '删除',
+  'dicts.opAction.enable': '启用',
+  'dicts.opAction.disable': '禁用',
+  'dicts.opAction.reload': '重载配置',
+  'dicts.opAction.rollback': '配置回滚',
+  'dicts.opAction.reset': '配额重置',
+  'dicts.opAction.login': '登录',
+  'dicts.opAction.mfa_bind': 'MFA 绑定',
+  'dicts.opAction.mfa_unbind': 'MFA 解绑',
+  'dicts.opAction.backup': '备份',
+  'dicts.opAction.restore': '恢复',
+
+  'dicts.opModule.provider': '供应商',
+  'dicts.opModule.model_alias': '模型别名',
+  'dicts.opModule.failover': '故障转移',
+  'dicts.opModule.guard': '护栏',
+  'dicts.opModule.quota': '配额',
+  'dicts.opModule.rate_limit': '速率限制',
+  'dicts.opModule.apikey': 'API Key',
+  'dicts.opModule.settings': '系统设置',
+  'dicts.opModule.security': '安全设置',
+  'dicts.opModule.backup': '数据备份',
+  'dicts.opModule.auth': '认证',
+};

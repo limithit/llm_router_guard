@@ -1,5 +1,7 @@
 import { App as AntApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
+import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { isLoggedIn } from './store/auth';
@@ -48,8 +50,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { i18n } = useTranslation();
+  const antdLocale = i18n.language === 'en-US' ? enUS : zhCN;
   return (
-    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#1677ff' } }}>
+    <ConfigProvider locale={antdLocale} theme={{ token: { colorPrimary: '#1677ff' } }}>
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>

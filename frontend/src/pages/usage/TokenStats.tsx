@@ -2,6 +2,7 @@
 // 按时间范围统计每个 API Key / 模型消耗的 token：汇总卡片 + 历史趋势 + 模型分布 + Key 排行表 + CSV 导出。
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -34,27 +35,33 @@ interface FiltersState {
   granularity: Granularity;
 }
 
-const PRESETS: {
+/** 构建预设时间范围（label 在组件内用 i18n 注入） */
+const buildPresets = (
+  t: (k: string) => string,
+): {
   key: string;
   label: string;
   range: () => [Dayjs, Dayjs];
   granularity: Granularity;
-}[] = [
-  { key: 'today', label: '今天', range: () => [dayjs().startOf('day'), dayjs()], granularity: 'hour' },
-  { key: '7d', label: '近 7 天', range: () => [dayjs().subtract(6, 'day').startOf('day'), dayjs()], granularity: 'day' },
-  { key: '30d', label: '近 30 天', range: () => [dayjs().subtract(29, 'day').startOf('day'), dayjs()], granularity: 'day' },
-  { key: 'month', label: '本月', range: () => [dayjs().startOf('month'), dayjs()], granularity: 'day' },
+}[] => [
+  { key: 'today', label: t('tokenStats.presetToday'), range: () => [dayjs().startOf('day'), dayjs()], granularity: 'hour' },
+  { key: '7d', label: t('tokenStats.preset7d'), range: () => [dayjs().subtract(6, 'day').startOf('day'), dayjs()], granularity: 'day' },
+  { key: '30d', label: t('tokenStats.preset30d'), range: () => [dayjs().subtract(29, 'day').startOf('day'), dayjs()], granularity: 'day' },
+  { key: 'month', label: t('tokenStats.presetMonth'), range: () => [dayjs().startOf('month'), dayjs()], granularity: 'day' },
 ];
 
-const defaultFilters: FiltersState = {
-  range: PRESETS[2].range(), // 默认近 30 天
-  api_key_id: undefined,
-  model: '',
-  granularity: 'day',
-};
-
 export default function TokenStats() {
+  const { t } = useTranslation();
   const { message } = App.useApp();
+
+  const PRESETS = useMemo(() => buildPresets(t), [t]);
+  const defaultFilters: FiltersState = {
+    range: PRESETS[2].range(), // 默认近 30 天
+    api_key_id: undefined,
+    model: '',
+    granularity: 'day',
+  };
+
   const [filters, setFilters] = useState<FiltersState>(defaultFilters);
   const [applied, setApplied] = useState<FiltersState>(defaultFilters);
   const [activePreset, setActivePreset] = useState<string>('30d');
@@ -88,7 +95,7 @@ export default function TokenStats() {
         api_key_id: params.api_key_id,
         model: params.model,
       }),
-    onSuccess: () => message.success('导出任务已触发，请查看浏览器下载'),
+    onSuccess: () => message.success(t('tokenStats.exportSuccess')),
   });
 
   const applyPreset = (key: string) => {
@@ -109,10 +116,10 @@ export default function TokenStats() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <Typography.Title level={4} style={{ margin: 0 }}>
-            Token 用量统计
+            {t('tokenStats.title')}
           </Typography.Title>
           <Typography.Text type="secondary">
-            按时间范围统计每个 API Key / 模型的 token 消耗，支持历史查询（数据源：调用审计日志）。
+            {t('tokenStats.desc')}
           </Typography.Text>
         </div>
         <Button
@@ -120,7 +127,7 @@ export default function TokenStats() {
           loading={exportMutation.isPending}
           onClick={() => exportMutation.mutate()}
         >
-          导出 CSV
+          {t('common.export')} CSV
         </Button>
       </div>
 
@@ -136,7 +143,7 @@ export default function TokenStats() {
               }
               applyPreset(String(v));
             }}
-            options={[...PRESETS.map((p) => ({ value: p.key, label: p.label })), { value: 'custom', label: '自定义' }]}
+            options={[...PRESETS.map((p) => ({ value: p.key, label: p.label })), { value: 'custom', label: t('tokenStats.presetCustom') }]}
           />
           <DatePicker.RangePicker
             showTime
@@ -145,13 +152,13 @@ export default function TokenStats() {
               setActivePreset('custom');
               setFilters((f) => ({ ...f, range: v }));
             }}
-            placeholder={['开始时间', '结束时间']}
+            placeholder={[t('tokenStats.placeholderStart'), t('tokenStats.placeholderEnd')]}
           />
           <Select
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="API Key"
+            placeholder={t('tokenStats.placeholderApikey')}
             style={{ width: 180 }}
             options={(apikeysData?.items ?? []).map((k) => ({ value: k.id, label: k.name }))}
             value={filters.api_key_id}
@@ -159,7 +166,7 @@ export default function TokenStats() {
           />
           <Input
             allowClear
-            placeholder="模型别名"
+            placeholder={t('tokenStats.placeholderModelAlias')}
             style={{ width: 140 }}
             value={filters.model}
             onChange={(e) => setFilters((f) => ({ ...f, model: e.target.value }))}
@@ -168,8 +175,8 @@ export default function TokenStats() {
             value={filters.granularity}
             onChange={(v) => setFilters((f) => ({ ...f, granularity: v as Granularity }))}
             options={[
-              { value: 'day', label: '按天' },
-              { value: 'hour', label: '按小时' },
+              { value: 'day', label: t('tokenStats.granDay') },
+              { value: 'hour', label: t('tokenStats.granHour') },
             ]}
           />
           <Button
@@ -177,7 +184,7 @@ export default function TokenStats() {
             icon={<SearchOutlined />}
             onClick={() => setApplied(filters)}
           >
-            查询
+            {t('common.search')}
           </Button>
           <Button
             onClick={() => {
@@ -186,7 +193,7 @@ export default function TokenStats() {
               setApplied(defaultFilters);
             }}
           >
-            重置
+            {t('common.reset')}
           </Button>
         </Space>
       </Card>
@@ -195,13 +202,13 @@ export default function TokenStats() {
       <Row gutter={[12, 12]}>
         <Col xs={12} md={4} flex="1 1 0">
           <Card size="small">
-            <Statistic title="总 Tokens" value={fmtNumber(summary?.total_tokens)} loading={isLoading} />
+            <Statistic title={t('tokenStats.totalTokensTitle')} value={fmtNumber(summary?.total_tokens)} loading={isLoading} />
           </Card>
         </Col>
         <Col xs={12} md={4} flex="1 1 0">
           <Card size="small">
             <Statistic
-              title="Prompt Tokens"
+              title={t('tokenStats.colPromptTokens')}
               value={fmtNumber(summary?.prompt_tokens)}
               valueStyle={{ color: '#1677ff' }}
               loading={isLoading}
@@ -211,7 +218,7 @@ export default function TokenStats() {
         <Col xs={12} md={4} flex="1 1 0">
           <Card size="small">
             <Statistic
-              title="Completion Tokens"
+              title={t('tokenStats.colCompletionTokens')}
               value={fmtNumber(summary?.completion_tokens)}
               valueStyle={{ color: '#52c41a' }}
               loading={isLoading}
@@ -220,13 +227,13 @@ export default function TokenStats() {
         </Col>
         <Col xs={12} md={4} flex="1 1 0">
           <Card size="small">
-            <Statistic title="调用次数" value={fmtNumber(summary?.calls)} loading={isLoading} />
+            <Statistic title={t('tokenStats.colCallsCount')} value={fmtNumber(summary?.calls)} loading={isLoading} />
           </Card>
         </Col>
         <Col xs={12} md={4} flex="1 1 0">
           <Card size="small">
             <Statistic
-              title="有用量 Key"
+              title={t('tokenStats.totalKeys')}
               value={summary?.keys_with_usage ?? 0}
               suffix={`/ ${summary?.total_keys ?? 0}`}
               loading={isLoading}
@@ -240,41 +247,45 @@ export default function TokenStats() {
         <Col xs={24} lg={15}>
           <Card
             size="small"
-            title={applied.granularity === 'hour' ? '用量趋势（按小时）' : '用量趋势（按天）'}
+            title={
+              applied.granularity === 'hour'
+                ? t('tokenStats.trendByHour')
+                : t('tokenStats.trendByDay')
+            }
             loading={isLoading}
           >
             <LineChart
-              data={(data?.trend ?? []).map((t) => ({
-                label: t.bucket.slice(5),
-                value: t.prompt_tokens,
-                value2: t.completion_tokens,
+              data={(data?.trend ?? []).map((item) => ({
+                label: item.bucket.slice(5),
+                value: item.prompt_tokens,
+                value2: item.completion_tokens,
               }))}
-              seriesName={['Prompt Tokens', 'Completion Tokens']}
+              seriesName={[t('tokenStats.seriesPrompt'), t('tokenStats.seriesCompletion')]}
             />
           </Card>
         </Col>
         <Col xs={24} lg={9}>
-          <Card size="small" title="模型 Token 分布" loading={isLoading}>
+          <Card size="small" title={t('tokenStats.byModelTitle')} loading={isLoading}>
             <DonutChart
               data={(data?.by_model ?? []).map((m) => ({ label: m.model, value: m.total_tokens }))}
-              centerText="总 Tokens"
+              centerText={t('tokenStats.byModelCenter')}
             />
           </Card>
         </Col>
       </Row>
 
       {/* 按 Key 用量排行表 */}
-      <Card size="small" title="API Key 用量明细" loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
+      <Card size="small" title={t('tokenStats.byKeyTitle')} loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
         <Table<TokenUsageByKey>
           rowKey="api_key_id"
           size="small"
           loading={isLoading}
           dataSource={data?.by_key ?? []}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          locale={{ emptyText: '该时间范围内无调用记录' }}
+          locale={{ emptyText: t('tokenStats.byKeyEmpty') }}
           columns={[
             {
-              title: 'API Key',
+              title: t('tokenStats.colApiKey'),
               dataIndex: 'api_key_label',
               render: (v: string, r) => (
                 <Space size={4}>
@@ -286,7 +297,7 @@ export default function TokenStats() {
               ),
             },
             {
-              title: '调用次数',
+              title: t('tokenStats.colCallsCount'),
               dataIndex: 'calls',
               width: 110,
               align: 'right',
@@ -294,7 +305,7 @@ export default function TokenStats() {
               render: (v: number) => fmtNumber(v),
             },
             {
-              title: 'Prompt Tokens',
+              title: t('tokenStats.colPromptTokens'),
               dataIndex: 'prompt_tokens',
               width: 140,
               align: 'right',
@@ -302,7 +313,7 @@ export default function TokenStats() {
               render: (v: number) => fmtNumber(v),
             },
             {
-              title: 'Completion Tokens',
+              title: t('tokenStats.colCompletionTokens'),
               dataIndex: 'completion_tokens',
               width: 150,
               align: 'right',
@@ -310,7 +321,7 @@ export default function TokenStats() {
               render: (v: number) => fmtNumber(v),
             },
             {
-              title: '总 Tokens',
+              title: t('tokenStats.colTotalTokens'),
               dataIndex: 'total_tokens',
               width: 140,
               align: 'right',
@@ -323,7 +334,7 @@ export default function TokenStats() {
               ),
             },
             {
-              title: '占比',
+              title: t('tokenStats.colShare'),
               key: 'share',
               width: 180,
               render: (_, r) => (

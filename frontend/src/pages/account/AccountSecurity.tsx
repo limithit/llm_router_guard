@@ -3,6 +3,7 @@
 // 已绑定：显示状态 / 剩余恢复码 / 解绑；另含修改密码表单
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   App,
@@ -33,6 +34,7 @@ interface PasswordFormValues {
 }
 
 export default function AccountSecurity() {
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
 
@@ -79,7 +81,7 @@ export default function AccountSecurity() {
   const disableMutation = useMutation({
     mutationFn: (c: string) => accountMfaApi.disable({ code: c }),
     onSuccess: () => {
-      message.success('MFA 已解绑');
+      message.success(t('acctSec.unbindOk'));
       setDisableOpen(false);
       setDisableCode('');
       invalidateStatus();
@@ -92,7 +94,7 @@ export default function AccountSecurity() {
   const pwdMutation = useMutation({
     mutationFn: authApi.changePassword,
     onSuccess: () => {
-      message.success('密码已修改');
+      message.success(t('acctSec.pwdChanged'));
       pwdForm.resetFields();
     },
     onError: () => undefined,
@@ -102,8 +104,8 @@ export default function AccountSecurity() {
 
   return (
     <PageContainer
-      title="个人账户 — 安全设置"
-      description="MFA（TOTP）绑定/解绑、恢复码管理与密码修改（REQ-021）。"
+      title={t('acctSec.title')}
+      description={t('acctSec.desc')}
     >
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={14}>
@@ -112,18 +114,18 @@ export default function AccountSecurity() {
             title={
               <Space>
                 <SafetyOutlined />
-                多因素认证（MFA）
+                {t('acctSec.mfaCard')}
               </Space>
             }
             extra={
-              bound ? <Tag color="green">已绑定</Tag> : <Tag color="default">未绑定</Tag>
+              bound ? <Tag color="green">{t('acctSec.bound')}</Tag> : <Tag color="default">{t('acctSec.unbound')}</Tag>
             }
           >
             <Descriptions size="small" column={1}>
-              <Descriptions.Item label="账户">{me?.username ?? '-'}</Descriptions.Item>
-              <Descriptions.Item label="绑定时间">{fmtTime(status?.bound_at)}</Descriptions.Item>
-              <Descriptions.Item label="剩余恢复码">
-                {status?.recovery_codes_left ?? '-'} 个
+              <Descriptions.Item label={t('acctSec.account')}>{me?.username ?? '-'}</Descriptions.Item>
+              <Descriptions.Item label={t('acctSec.boundAt')}>{fmtTime(status?.bound_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('acctSec.codesLeft')}>
+                {t('acctSec.codesLeftUnit', { n: status?.recovery_codes_left ?? '-' })}
               </Descriptions.Item>
             </Descriptions>
 
@@ -134,14 +136,14 @@ export default function AccountSecurity() {
                 <Alert
                   type="info"
                   showIcon
-                  message="绑定后登录需额外输入动态验证码，可显著提升管理后台安全性。"
+                  message={t('acctSec.bindHint')}
                 />
                 <Button
                   type="primary"
                   loading={setupMutation.isPending}
                   onClick={() => setupMutation.mutate()}
                 >
-                  开始绑定 MFA
+                  {t('acctSec.startBind')}
                 </Button>
               </Space>
             )}
@@ -151,24 +153,28 @@ export default function AccountSecurity() {
                 <Steps
                   size="small"
                   current={0}
-                  items={[{ title: '扫描二维码' }, { title: '验证动态码' }, { title: '保存恢复码' }]}
+                  items={[
+                    { title: t('acctSec.stepScan') },
+                    { title: t('acctSec.stepVerify') },
+                    { title: t('acctSec.stepSave') },
+                  ]}
                 />
                 <div style={{ textAlign: 'center', margin: '12px 0' }}>
                   <img
-                    alt="TOTP 绑定二维码"
+                    alt={t('acctSec.qrAlt')}
                     src={`data:image/png;base64,${setup.qr_png_base64}`}
                     style={{ width: 200, height: 200 }}
                   />
                 </div>
                 <Typography.Paragraph type="secondary">
-                  使用 Google Authenticator / Microsoft Authenticator 等应用扫描二维码，或手动输入密钥：
+                  {t('acctSec.scanHint')}
                 </Typography.Paragraph>
                 <Typography.Paragraph copyable code>
                   {setup.secret}
                 </Typography.Paragraph>
                 <Space.Compact style={{ width: '100%' }}>
                   <Input
-                    placeholder="输入 6 位动态验证码完成绑定"
+                    placeholder={t('acctSec.codePh')}
                     maxLength={6}
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
@@ -180,7 +186,7 @@ export default function AccountSecurity() {
                     disabled={code.length !== 6}
                     onClick={() => enableMutation.mutate(code)}
                   >
-                    验证并绑定
+                    {t('acctSec.verifyBind')}
                   </Button>
                 </Space.Compact>
               </Space>
@@ -191,7 +197,7 @@ export default function AccountSecurity() {
                 <Alert
                   type="success"
                   showIcon
-                  message="MFA 绑定成功！请立即保存以下备用恢复码（仅展示这一次）。"
+                  message={t('acctSec.boundOk')}
                 />
                 <Card size="small" style={{ background: '#fafafa' }}>
                   <Space wrap>
@@ -206,22 +212,22 @@ export default function AccountSecurity() {
                   icon={<CopyOutlined />}
                   onClick={async () => {
                     await navigator.clipboard.writeText(recoveryCodes.join('\n'));
-                    message.success('恢复码已复制');
+                    message.success(t('acctSec.codesCopied'));
                   }}
                 >
-                  复制全部恢复码
+                  {t('acctSec.copyAll')}
                 </Button>
                 <Button type="primary" onClick={() => setStep(0)}>
-                  完成
+                  {t('acctSec.done')}
                 </Button>
               </Space>
             )}
 
             {bound && (
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Alert type="success" showIcon message="MFA 已启用，登录时将要求输入动态验证码。" />
+                <Alert type="success" showIcon message={t('acctSec.active')} />
                 <Button danger onClick={() => setDisableOpen(true)}>
-                  解绑 MFA
+                  {t('acctSec.unbind')}
                 </Button>
               </Space>
             )}
@@ -229,7 +235,7 @@ export default function AccountSecurity() {
         </Col>
 
         <Col xs={24} lg={10}>
-          <Card size="small" title="修改密码">
+          <Card size="small" title={t('acctSec.pwdCard')}>
             <Form<PasswordFormValues>
               form={pwdForm}
               layout="vertical"
@@ -239,39 +245,39 @@ export default function AccountSecurity() {
             >
               <Form.Item
                 name="old_password"
-                label="当前密码"
-                rules={[{ required: true, message: '请输入当前密码' }]}
+                label={t('acctSec.oldPwd')}
+                rules={[{ required: true, message: t('acctSec.oldPwdReq') }]}
               >
-                <Input.Password placeholder="当前密码" />
+                <Input.Password placeholder={t('acctSec.oldPwd')} />
               </Form.Item>
               <Form.Item
                 name="new_password"
-                label="新密码"
+                label={t('acctSec.newPwd')}
                 rules={[
-                  { required: true, message: '请输入新密码' },
-                  { min: 8, message: '密码至少 8 位' },
+                  { required: true, message: t('acctSec.newPwdReq') },
+                  { min: 8, message: t('acctSec.newPwdMin') },
                 ]}
               >
-                <Input.Password placeholder="至少 8 位" />
+                <Input.Password placeholder={t('acctSec.newPwdPh')} />
               </Form.Item>
               <Form.Item
                 name="confirm"
-                label="确认新密码"
+                label={t('acctSec.confirmPwd')}
                 dependencies={['new_password']}
                 rules={[
-                  { required: true, message: '请再次输入新密码' },
+                  { required: true, message: t('acctSec.confirmReq') },
                   ({ getFieldValue }) => ({
                     validator(_, value) {
                       if (!value || getFieldValue('new_password') === value) return Promise.resolve();
-                      return Promise.reject(new Error('两次输入的密码不一致'));
+                      return Promise.reject(new Error(t('acctSec.pwdMismatch')));
                     },
                   }),
                 ]}
               >
-                <Input.Password placeholder="再次输入新密码" />
+                <Input.Password placeholder={t('acctSec.confirmPh')} />
               </Form.Item>
               <Button type="primary" htmlType="submit" loading={pwdMutation.isPending}>
-                修改密码
+                {t('acctSec.changePwd')}
               </Button>
             </Form>
           </Card>
@@ -280,11 +286,11 @@ export default function AccountSecurity() {
 
       {/* 解绑 MFA：需验证码或恢复码 */}
       <Modal
-        title="解绑 MFA"
+        title={t('acctSec.unbindModal')}
         open={disableOpen}
         confirmLoading={disableMutation.isPending}
         okButtonProps={{ danger: true }}
-        okText="确认解绑"
+        okText={t('acctSec.unbindOkText')}
         onOk={() => disableMutation.mutate(disableCode)}
         onCancel={() => {
           setDisableOpen(false);
@@ -294,11 +300,11 @@ export default function AccountSecurity() {
         <Alert
           type="warning"
           showIcon
-          message="解绑后登录将不再要求动态验证码（该操作会记录审计）。"
+          message={t('acctSec.unbindWarn')}
           style={{ marginBottom: 12 }}
         />
         <Input
-          placeholder="输入当前 6 位动态验证码或任一恢复码"
+          placeholder={t('acctSec.unbindPh')}
           value={disableCode}
           onChange={(e) => setDisableCode(e.target.value.trim())}
         />
@@ -307,7 +313,7 @@ export default function AccountSecurity() {
       {/* need_bind_mfa 引导提示（登录后由 /login 跳转进来时可见） */}
       {me && !bound && step === 0 && (
         <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-          提示：若管理员开启了「强制所有用户启用 MFA」，未绑定用户登录后会被引导至本页。
+          {t('acctSec.forcedTip')}
         </Typography.Paragraph>
       )}
     </PageContainer>

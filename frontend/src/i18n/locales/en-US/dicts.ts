@@ -1,0 +1,85 @@
+export default {
+  'dicts.protocol.openai_chat': 'OpenAI Chat Completions',
+  'dicts.protocol.openai_responses': 'OpenAI Responses',
+  'dicts.protocol.anthropic': 'Anthropic Messages',
+
+  'dicts.keywordCategory.political': 'Political',
+  'dicts.keywordCategory.porn': 'Pornography',
+  'dicts.keywordCategory.violence': 'Violence',
+  'dicts.keywordCategory.illegal': 'Illegal',
+  'dicts.keywordCategory.discrimination': 'Discrimination',
+  'dicts.keywordCategory.custom': 'Custom',
+
+  'dicts.matchMode.contains': 'Contains',
+  'dicts.matchMode.exact': 'Exact',
+  'dicts.matchMode.regex': 'Regex',
+
+  'dicts.action.block': 'Block',
+  'dicts.action.warn': 'Warn',
+  'dicts.action.log': 'Log Only',
+  'dicts.action.mask': 'Mask',
+
+  'dicts.quotaType.requests': 'Requests',
+  'dicts.quotaType.tokens': 'Tokens',
+
+  'dicts.period.day': 'Day',
+  'dicts.period.week': 'Week',
+  'dicts.period.month': 'Month',
+
+  'dicts.overAction.reject': 'Reject',
+  'dicts.overAction.degrade': 'Degrade',
+
+  'dicts.callStatus.ok': 'Success',
+  'dicts.callStatus.error': 'Error',
+  'dicts.callStatus.blocked': 'Blocked',
+  'dicts.callStatus.rate_limited': 'Rate Limited',
+  'dicts.callStatus.quota_exceeded': 'Quota Exceeded',
+
+  'dicts.logLevel.debug': 'debug',
+  'dicts.logLevel.info': 'info',
+  'dicts.logLevel.warn': 'warn',
+  'dicts.logLevel.error': 'error',
+
+  'dicts.violationStrategy.replace': 'Replace with safe message',
+  'dicts.violationStrategy.block': 'Block output',
+  'dicts.violationStrategy.log': 'Log only',
+
+  'dicts.alertChannel.ui': 'UI Notice',
+  'dicts.alertChannel.webhook': 'Webhook',
+
+  'dicts.backoff.fixed': 'Fixed',
+  'dicts.backoff.exponential': 'Exponential',
+
+  'dicts.piiCategory.phone': 'Phone',
+  'dicts.piiCategory.id_card': 'ID Card',
+  'dicts.piiCategory.email': 'Email',
+  'dicts.piiCategory.bank_card': 'Bank Card',
+  'dicts.piiCategory.address': 'Address',
+  'dicts.piiCategory.custom': 'Custom',
+
+  'dicts.opAction.create': 'Create',
+  'dicts.opAction.update': 'Update',
+  'dicts.opAction.delete': 'Delete',
+  'dicts.opAction.enable': 'Enable',
+  'dicts.opAction.disable': 'Disable',
+  'dicts.opAction.reload': 'Reload Config',
+  'dicts.opAction.rollback': 'Rollback Config',
+  'dicts.opAction.reset': 'Reset Quota',
+  'dicts.opAction.login': 'Login',
+  'dicts.opAction.mfa_bind': 'MFA Bind',
+  'dicts.opAction.mfa_unbind': 'MFA Unbind',
+  'dicts.opAction.backup': 'Backup',
+  'dicts.opAction.restore': 'Restore',
+
+  'dicts.opModule.provider': 'Provider',
+  'dicts.opModule.model_alias': 'Model Alias',
+  'dicts.opModule.failover': 'Failover',
+  'dicts.opModule.guard': 'Guardrail',
+  'dicts.opModule.quota': 'Quota',
+  'dicts.opModule.rate_limit': 'Rate Limit',
+  'dicts.opModule.apikey': 'API Key',
+  'dicts.opModule.settings': 'Settings',
+  'dicts.opModule.security': 'Security',
+  'dicts.opModule.backup': 'Backup',
+  'dicts.opModule.auth': 'Auth',
+};

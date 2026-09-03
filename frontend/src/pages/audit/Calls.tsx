@@ -18,11 +18,11 @@ import {
 } from 'antd';
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
-import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import JsonView from '../../components/JsonView';
 import { apikeyApi, callLogApi } from '../../api/endpoints';
-import { CALL_STATUS_MAP, CALL_STATUS_OPTIONS, colorOf, labelOf } from '../../constants/dicts';
+import { CALL_STATUS_META, colorOf, useDictLabel, useDictOptions } from '../../constants/dicts';
+import { useTranslation } from 'react-i18next';
 import { fmtNumber, fmtTime } from '../../utils/format';
 import type { CallLogDetail, CallLogRow, CallStatus } from '../../api/types';
 
@@ -36,6 +36,9 @@ interface FiltersState {
 }
 
 export default function Calls() {
+  const { t } = useTranslation();
+  const statusOpts = useDictOptions('callStatus', CALL_STATUS_META);
+  const statusLbl = useDictLabel('callStatus');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -81,7 +84,7 @@ export default function Calls() {
 
   const exportMutation = useMutation({
     mutationFn: () => callLogApi.exportCsv(params as never),
-    onSuccess: () => message.success('导出任务已触发，请查看浏览器下载'),
+    onSuccess: () => message.success(t('calls.exportOk')),
     onError: () => undefined,
   });
 
@@ -100,15 +103,15 @@ export default function Calls() {
 
   return (
     <PageContainer
-      title="调用日志"
-      description="全链路请求/响应审计日志查询（REQ-015）。"
+      title={t('calls.title')}
+      description={t('calls.desc')}
       extra={
         <Button
           icon={<DownloadOutlined />}
           loading={exportMutation.isPending}
           onClick={() => exportMutation.mutate()}
         >
-          导出 CSV
+          {t('calls.export')}
         </Button>
       }
     >
@@ -118,7 +121,7 @@ export default function Calls() {
           showTime
           value={filters.range}
           onChange={(v) => setFilters((f) => ({ ...f, range: v }))}
-          placeholder={['开始时间', '结束时间']}
+          placeholder={[t('calls.start'), t('calls.end')]}
         />
         <Select
           allowClear
@@ -135,33 +138,33 @@ export default function Calls() {
         />
         <Input
           allowClear
-          placeholder="模型别名"
+          placeholder={t('calls.modelPh')}
           style={{ width: 140 }}
           value={filters.model}
           onChange={(e) => setFilters((f) => ({ ...f, model: e.target.value }))}
         />
         <Select
           allowClear
-          placeholder="状态"
+          placeholder={t('calls.statusPh')}
           style={{ width: 130 }}
-          options={CALL_STATUS_OPTIONS}
+          options={statusOpts}
           value={filters.status || undefined}
           onChange={(v: CallStatus) => setFilters((f) => ({ ...f, status: v ?? '' }))}
         />
         <Select
           allowClear
-          placeholder="是否拦截"
+          placeholder={t('calls.blockedPh')}
           style={{ width: 120 }}
           options={[
-            { value: true, label: '已拦截' },
-            { value: false, label: '未拦截' },
+            { value: true, label: t('calls.blockedYes') },
+            { value: false, label: t('calls.blockedNo') },
           ]}
           value={filters.blocked}
           onChange={(v: boolean) => setFilters((f) => ({ ...f, blocked: v }))}
         />
         <Input
           allowClear
-          placeholder="拦截类别，如 keyword.political"
+          placeholder={t('calls.categoryPh')}
           style={{ width: 200 }}
           value={filters.category}
           onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value }))}
@@ -174,7 +177,7 @@ export default function Calls() {
             setApplied(filters);
           }}
         >
-          查询
+          {t('calls.search')}
         </Button>
         <Button
           onClick={() => {
@@ -184,7 +187,7 @@ export default function Calls() {
             setApplied(empty);
           }}
         >
-          重置
+          {t('common.reset')}
         </Button>
       </Space>
 
@@ -194,31 +197,31 @@ export default function Calls() {
         dataSource={data?.items ?? []}
         scroll={{ x: 1250 }}
         columns={[
-          { title: '时间', dataIndex: 'created_at', width: 165, render: (v: string) => fmtTime(v) },
+          { title: t('calls.colTime'), dataIndex: 'created_at', width: 165, render: (v: string) => fmtTime(v) },
           {
-            title: '请求 ID',
+            title: t('calls.colReqId'),
             dataIndex: 'request_id',
             width: 100,
             ellipsis: true,
             render: (v: string) => <Typography.Text code copyable style={{ fontSize: 12 }}>{v.slice(0, 8)}</Typography.Text>,
           },
           { title: 'API Key', dataIndex: 'api_key_label', width: 110 },
-          { title: '模型', dataIndex: 'model_alias', width: 110 },
+          { title: t('calls.colModel'), dataIndex: 'model_alias', width: 110 },
           {
-            title: '实际上游',
+            title: t('calls.colUpstream'),
             dataIndex: 'upstream',
             width: 170,
             ellipsis: true,
             render: (v: string) => v || '-',
           },
           {
-            title: '输入预览',
+            title: t('calls.colInput'),
             dataIndex: 'input_preview',
             ellipsis: true,
             render: (v: string) => v || '-',
           },
           {
-            title: '输出预览',
+            title: t('calls.colOutput'),
             dataIndex: 'output_preview',
             ellipsis: true,
             render: (v: string) => v || '-',
@@ -229,40 +232,40 @@ export default function Calls() {
             width: 110,
             render: (_: unknown, r: CallLogRow) => `${fmtNumber(r.prompt_tokens)}/${fmtNumber(r.completion_tokens)}`,
           },
-          { title: '延迟', dataIndex: 'latency_ms', width: 90, render: (v: number) => `${fmtNumber(v)} ms` },
+          { title: t('calls.colLatency'), dataIndex: 'latency_ms', width: 90, render: (v: number) => `${fmtNumber(v)} ms` },
           {
-            title: '状态',
+            title: t('common.status'),
             dataIndex: 'status',
             width: 100,
             render: (v: CallStatus) => (
-              <Tag color={colorOf(CALL_STATUS_MAP.colors, v)}>{labelOf(CALL_STATUS_MAP.labels, v)}</Tag>
+              <Tag color={colorOf(CALL_STATUS_META, v)}>{statusLbl(v)}</Tag>
             ),
           },
           {
-            title: '拦截',
+            title: t('calls.colBlocked'),
             key: 'blocked',
             width: 170,
             render: (_: unknown, r: CallLogRow) =>
               r.blocked ? (
                 <Space direction="vertical" size={0}>
-                  <Tag color="error">已拦截</Tag>
+                  <Tag color="error">{t('calls.blockedYes')}</Tag>
                   <Typography.Text type="danger" style={{ fontSize: 11 }}>
                     {r.block_category || '-'}
-                    {r.block_reason ? `：${r.block_reason}` : ''}
+                    {r.block_reason ? `: ${r.block_reason}` : ''}
                   </Typography.Text>
                 </Space>
               ) : (
-                <Tag>未拦截</Tag>
+                <Tag>{t('calls.blockedNo')}</Tag>
               ),
           },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 90,
             fixed: 'right',
             render: (_: unknown, r: CallLogRow) => (
               <Button size="small" type="link" onClick={() => void showDetail(r)}>
-                详情
+                {t('calls.detail')}
               </Button>
             ),
           },
@@ -272,7 +275,7 @@ export default function Calls() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -282,7 +285,7 @@ export default function Calls() {
 
       {/* 详情 Drawer */}
       <Drawer
-        title={`调用详情：${detail?.request_id ?? ''}`}
+        title={t('calls.detailTitle', { id: detail?.request_id ?? '' })}
         open={Boolean(detail) || detailLoading}
         onClose={() => setDetail(null)}
         width={760}
@@ -295,34 +298,34 @@ export default function Calls() {
               bordered
               column={2}
               items={[
-                { key: 'time', label: '时间', children: fmtTime(detail.created_at) },
+                { key: 'time', label: t('calls.colTime'), children: fmtTime(detail.created_at) },
                 { key: 'api', label: 'API Key', children: detail.api_key_label },
-                { key: 'protocol', label: '协议', children: detail.protocol },
-                { key: 'model', label: '模型别名', children: detail.model_alias },
-                { key: 'upstream', label: '实际上游', children: detail.upstream || '-' },
-                { key: 'status', label: '状态', children: <Tag color={colorOf(CALL_STATUS_MAP.colors, detail.status)}>{labelOf(CALL_STATUS_MAP.labels, detail.status)}</Tag> },
+                { key: 'protocol', label: t('calls.protocol'), children: detail.protocol },
+                { key: 'model', label: t('calls.modelPh'), children: detail.model_alias },
+                { key: 'upstream', label: t('calls.colUpstream'), children: detail.upstream || '-' },
+                { key: 'status', label: t('common.status'), children: <Tag color={colorOf(CALL_STATUS_META, detail.status)}>{statusLbl(detail.status)}</Tag> },
                 {
                   key: 'tokens',
-                  label: 'Token 用量',
+                  label: t('calls.tokenUsage'),
                   children: `prompt ${fmtNumber(detail.prompt_tokens)} / completion ${fmtNumber(detail.completion_tokens)}`,
                 },
-                { key: 'latency', label: '延迟', children: `${fmtNumber(detail.latency_ms)} ms` },
+                { key: 'latency', label: t('calls.colLatency'), children: `${fmtNumber(detail.latency_ms)} ms` },
                 {
                   key: 'block',
-                  label: '拦截',
+                  label: t('calls.colBlocked'),
                   children: detail.blocked ? (
                     <Typography.Text type="danger">
                       {detail.block_category || '-'} — {detail.block_reason || '-'}
                     </Typography.Text>
                   ) : (
-                    '否'
+                    t('calls.blockNone')
                   ),
                 },
-                { key: 'error', label: '错误信息', children: detail.error_msg || '-' },
+                { key: 'error', label: t('calls.errorLabel'), children: detail.error_msg || '-' },
               ]}
             />
             <Typography.Title level={5} style={{ marginTop: 20 }}>
-              输入全文
+              {t('calls.inputFull')}
             </Typography.Title>
             <Typography.Paragraph
               style={{
@@ -335,9 +338,9 @@ export default function Calls() {
               }}
               copyable
             >
-              {detail.input_text || '(无)'}
+              {detail.input_text || t('calls.none')}
             </Typography.Paragraph>
-            <Typography.Title level={5}>输出全文</Typography.Title>
+            <Typography.Title level={5}>{t('calls.outputFull')}</Typography.Title>
             <Typography.Paragraph
               style={{
                 padding: 10,
@@ -349,9 +352,9 @@ export default function Calls() {
               }}
               copyable
             >
-              {detail.output_text || '(无)'}
+              {detail.output_text || t('calls.none')}
             </Typography.Paragraph>
-            <Typography.Title level={5}>护栏命中（guard_findings）</Typography.Title>
+            <Typography.Title level={5}>{t('calls.findings')}</Typography.Title>
             <JsonView value={detail.guard_findings} maxHeight={300} />
           </>
         ) : null}

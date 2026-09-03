@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import i18n from '../i18n';
 
 /** RFC3339 → 'YYYY-MM-DD HH:mm:ss'（契约要求时间字段统一 RFC3339） */
 export function fmtTime(value?: string | number | null): string {
@@ -27,15 +28,16 @@ export function fmtDuration(totalSeconds?: number): string {
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  if (d > 0) return `${d}天${h}小时${m}分`;
-  if (h > 0) return `${h}小时${m}分${sec}秒`;
-  if (m > 0) return `${m}分${sec}秒`;
-  return `${sec}秒`;
+  const D = i18n.t('common.day'), H = i18n.t('common.hour'), M = i18n.t('common.minute'), S = i18n.t('common.second');
+  if (d > 0) return `${d}${D}${h}${H}${m}${M}`;
+  if (h > 0) return `${h}${H}${m}${M}${sec}${S}`;
+  if (m > 0) return `${m}${M}${sec}${S}`;
+  return `${sec}${S}`;
 }
 
 export function fmtNumber(n?: number | null): string {
   if (n == null || Number.isNaN(n)) return '-';
-  return n.toLocaleString('zh-CN');
+  return n.toLocaleString(i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US');
 }
 
 /** 使用率 → antd Progress 颜色（超额自动变色） */

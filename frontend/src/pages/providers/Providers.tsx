@@ -2,6 +2,7 @@
 // 列表 CRUD + Modal 表单（编辑时 api_key 留空=不修改）+ 启用 Switch + 删除确认 + 测试连接
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -21,7 +22,7 @@ import { keepPreviousData } from '@tanstack/react-query';
 import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
 import { providerApi } from '../../api/endpoints';
-import { PROTOCOL_MAP, PROTOCOL_OPTIONS, labelOf } from '../../constants/dicts';
+import { PROTOCOL_META, useDictLabel, useDictOptions } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
 import type { Provider, ProviderInput, ProviderProtocol } from '../../api/types';
 
@@ -35,6 +36,9 @@ interface ProviderFormValues {
 }
 
 export default function Providers() {
+  const { t } = useTranslation();
+  const protoOpts = useDictOptions('protocol', PROTOCOL_META);
+  const protoLbl = useDictLabel('protocol');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -67,7 +71,7 @@ export default function Providers() {
     mutationFn: (body: ProviderInput) =>
       editing ? providerApi.update(editing.id, body) : providerApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '供应商已更新' : '供应商已创建');
+      message.success(editing ? t('providers.updated') : t('providers.created'));
       setModalOpen(false);
       invalidate();
     },
@@ -77,7 +81,7 @@ export default function Providers() {
   const deleteMutation = useMutation({
     mutationFn: providerApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -92,7 +96,7 @@ export default function Providers() {
       enabled,
       remark: record.remark,
     });
-    message.success(enabled ? '已启用' : '已禁用');
+    message.success(enabled ? t('providers.enabledOk') : t('providers.disabledOk'));
     invalidate();
   };
 
@@ -101,11 +105,11 @@ export default function Providers() {
     try {
       const res = await providerApi.test(record.id);
       if (res.ok) {
-        const extra = res.models?.length ? `，返回 ${res.models.length} 个模型` : '';
-        message.success(`连接成功，延迟 ${res.latency_ms} ms${extra}`);
+        const extra = res.models?.length ? t('providers.testModels', { n: res.models.length }) : '';
+        message.success(t('providers.testOk', { ms: res.latency_ms }) + extra);
         // 连接成功但未返回模型列表 → 提示手动添加上游
         if (!res.models || res.models.length === 0) {
-          message.info('该供应商未返回模型列表，请到「模型别名」页手动添加上游。');
+          message.info(t('providers.testNoModels'));
         }
         if (res.models && res.models.length) {
           setImportProvider(record);
@@ -114,7 +118,7 @@ export default function Providers() {
           setImportModalOpen(true);
         }
       } else {
-        message.error(`连接失败 — ${res.message}`);
+        message.error(t('providers.testFail', { msg: res.message }));
       }
     } catch {
       // 拦截器已 toast
@@ -131,9 +135,10 @@ export default function Providers() {
         models: selectedModels,
         enabled: true,
       });
-      const addedNote = res.added ? `，追加 ${res.added} 个上游到已有别名` : '';
-      const skippedNote = res.skipped ? `，跳过 ${res.skipped} 个已存在` : '';
-      message.success(`新建 ${res.created} 个别名${addedNote}${skippedNote}`);
+      let msg = t('providers.importOk', { created: res.created });
+      if (res.added) msg += t('providers.importAdded', { n: res.added });
+      if (res.skipped) msg += t('providers.importSkipped', { n: res.skipped });
+      message.success(msg);
       setImportModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ['models'] });
     } catch {
@@ -177,15 +182,15 @@ export default function Providers() {
 
   return (
     <PageContainer
-      title="供应商管理"
-      description="管理上游 AI 模型供应商接入信息（REQ-005），变更通过热加载 ≤3s 内生效。"
+      title={t('providers.title')}
+      description={t('providers.desc')}
       extra={
         <>
           <Button icon={<ReloadOutlined />} onClick={() => invalidate()}>
-            刷新
+            {t('providers.refresh')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建供应商
+            {t('providers.add')}
           </Button>
         </>
       }
@@ -193,7 +198,7 @@ export default function Providers() {
       <Space style={{ marginBottom: 12 }}>
         <Input.Search
           allowClear
-          placeholder="按名称/端点搜索"
+          placeholder={t('providers.searchPh')}
           style={{ width: 260 }}
           onSearch={(v) => {
             setPage(1);
@@ -210,7 +215,7 @@ export default function Providers() {
             setPage(1);
           }}
         >
-          重置
+          {t('common.reset')}
         </Button>
       </Space>
 
@@ -227,14 +232,14 @@ export default function Providers() {
             width: 64,
             render: (v: number) => <Tag>{v}</Tag>,
           },
-          { title: '名称', dataIndex: 'name', width: 140 },
+          { title: t('providers.colName'), dataIndex: 'name', width: 140 },
           {
-            title: '协议',
+            title: t('providers.colProtocol'),
             dataIndex: 'protocol',
             width: 180,
-            render: (v: ProviderProtocol) => labelOf(PROTOCOL_MAP.labels, v),
+            render: (v: ProviderProtocol) => protoLbl(v),
           },
-          { title: 'API 端点', dataIndex: 'base_url', ellipsis: true },
+          { title: t('providers.colEndpoint'), dataIndex: 'base_url', ellipsis: true },
           {
             title: 'API Key',
             dataIndex: 'api_key_masked',
@@ -242,7 +247,7 @@ export default function Providers() {
             render: (v: string) => <Typography.Text code>{v || '-'}</Typography.Text>,
           },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: Provider) => (
@@ -250,39 +255,39 @@ export default function Providers() {
             ),
           },
           {
-            title: '备注',
+            title: t('common.remark'),
             dataIndex: 'remark',
             width: 120,
             ellipsis: true,
             render: (v: string) => v || '-',
           },
           {
-            title: '更新时间',
+            title: t('providers.colUpdatedAt'),
             dataIndex: 'updated_at',
             width: 160,
             render: (v: string) => fmtTime(v),
           },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 220,
             fixed: 'right',
             render: (_: unknown, record: Provider) => (
               <Space>
                 <Button size="small" loading={testingId === record.id} onClick={() => handleTest(record)}>
-                  测试连接
+                  {t('providers.test')}
                 </Button>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除供应商"
-                  description={`确认删除「${record.name}」？如被模型别名引用将被后端拒绝。`}
+                  title={t('providers.deleteTitle')}
+                  description={t('providers.deleteConfirm', { name: record.name })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -294,7 +299,7 @@ export default function Providers() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -303,7 +308,7 @@ export default function Providers() {
       />
 
       <Modal
-        title={editing ? `编辑供应商：${editing.name}` : '新建供应商'}
+        title={editing ? t('providers.editTitle', { name: editing.name }) : t('providers.createTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleOk}
@@ -314,24 +319,24 @@ export default function Providers() {
         <Form<ProviderFormValues> form={form} layout="vertical" style={{ marginTop: 12 }}>
           <Form.Item
             name="name"
-            label="供应商名称（唯一标识）"
-            rules={[{ required: true, message: '请输入供应商名称' }]}
+            label={t('providers.nameLabel')}
+            rules={[{ required: true, message: t('providers.nameReq') }]}
           >
-            <Input placeholder="例如 openai-main" />
+            <Input placeholder={t('providers.namePh')} />
           </Form.Item>
           <Form.Item
             name="protocol"
-            label="协议类型"
-            rules={[{ required: true, message: '请选择协议类型' }]}
+            label={t('providers.protocolLabel')}
+            rules={[{ required: true, message: t('providers.protocolReq') }]}
           >
-            <Select options={PROTOCOL_OPTIONS} />
+            <Select options={protoOpts} />
           </Form.Item>
           <Form.Item
             name="base_url"
-            label="API 端点 URL"
+            label={t('providers.urlLabel')}
             rules={[
-              { required: true, message: '请输入 API 端点 URL' },
-              { type: 'url', message: '请输入合法的 URL（含 http(s)://）' },
+              { required: true, message: t('providers.urlReq') },
+              { type: 'url', message: t('providers.urlInvalid') },
             ]}
           >
             <Input placeholder="https://api.openai.com/v1" />
@@ -339,40 +344,40 @@ export default function Providers() {
           <Form.Item
             name="api_key"
             label="API Key"
-            extra={editing ? '编辑时留空表示不修改原 Key' : '将加密存储，列表中只展示脱敏值'}
-            rules={editing ? [] : [{ required: true, message: '请输入 API Key' }]}
+            extra={editing ? t('providers.keyExtraEdit') : t('providers.keyExtraNew')}
+            rules={editing ? [] : [{ required: true, message: t('providers.keyReq') }]}
           >
-            <Input.Password placeholder={editing ? '留空表示不修改' : 'sk-...'} autoComplete="new-password" />
+            <Input.Password placeholder={editing ? t('providers.keyPhKeep') : 'sk-...'} autoComplete="new-password" />
           </Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
+            <Switch checkedChildren={t('providers.on')} unCheckedChildren={t('providers.off')} />
           </Form.Item>
-          <Form.Item name="remark" label="备注">
-            <Input.TextArea rows={2} placeholder="备注（可选）" />
+          <Form.Item name="remark" label={t('common.remark')}>
+            <Input.TextArea rows={2} placeholder={t('providers.remarkPh')} />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title={`导入模型别名 — ${importProvider?.name ?? ''}`}
+        title={t('providers.importTitle', { name: importProvider?.name ?? '' })}
         open={importModalOpen}
         confirmLoading={importing}
-        okText={`导入选中（${selectedModels.length}）`}
+        okText={t('providers.importOkText', { n: selectedModels.length })}
         okButtonProps={{ disabled: selectedModels.length === 0 }}
-        cancelText="取消"
+        cancelText={t('common.cancel')}
         onOk={handleImport}
         onCancel={() => setImportModalOpen(false)}
         width={560}
         destroyOnClose
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          勾选要启用的模型：新别名以「上游模型名」命名并指向本供应商；若别名已存在，则把本供应商追加为额外上游（同供应商+同模型去重），这样一个别名可挂多个账号/平台，供 SLB 加权轮询与故障转移。
+          {t('providers.importHint')}
         </Typography.Paragraph>
         <Table
           size="small"
           rowKey="name"
           dataSource={modelList.map((m) => ({ name: m }))}
-          columns={[{ title: '模型', dataIndex: 'name' }]}
+          columns={[{ title: t('providers.colModel'), dataIndex: 'name' }]}
           pagination={false}
           scroll={{ y: 360 }}
           rowSelection={{

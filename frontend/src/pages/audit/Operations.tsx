@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -22,7 +23,7 @@ import type { Dayjs } from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import JsonView from '../../components/JsonView';
 import { opLogApi } from '../../api/endpoints';
-import { OP_ACTION_MAP, OP_MODULE_MAP, OP_ACTION_OPTIONS, OP_MODULE_OPTIONS } from '../../constants/dicts';
+import { OP_ACTION_META, OP_MODULE_META, useDictLabel, useDictOptions } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
 import type { OpLogRow } from '../../api/types';
 
@@ -34,6 +35,11 @@ interface FiltersState {
 }
 
 export default function Operations() {
+  const { t } = useTranslation();
+  const opActionOpts = useDictOptions('opAction', OP_ACTION_META);
+  const opModuleOpts = useDictOptions('opModule', OP_MODULE_META);
+  const opActionLbl = useDictLabel('opAction');
+  const opModuleLbl = useDictLabel('opModule');
   const { message } = App.useApp();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -67,21 +73,21 @@ export default function Operations() {
 
   const exportMutation = useMutation({
     mutationFn: () => opLogApi.exportCsv(params as never),
-    onSuccess: () => message.success('导出任务已触发，请查看浏览器下载'),
+    onSuccess: () => message.success(t('ops.exportOk')),
     onError: () => undefined,
   });
 
   return (
     <PageContainer
-      title="操作审计"
-      description="所有配置变更操作的全链路追溯（REQ-003）：操作人、类型、模块、变更前后对比、IP、生效状态。"
+      title={t('ops.title')}
+      description={t('ops.desc')}
       extra={
         <Button
           icon={<DownloadOutlined />}
           loading={exportMutation.isPending}
           onClick={() => exportMutation.mutate()}
         >
-          导出 CSV
+          {t('ops.export')}
         </Button>
       }
     >
@@ -93,26 +99,26 @@ export default function Operations() {
         />
         <Input
           allowClear
-          placeholder="操作人"
+          placeholder={t('ops.operatorPh')}
           style={{ width: 150 }}
           value={filters.operator}
           onChange={(e) => setFilters((f) => ({ ...f, operator: e.target.value }))}
         />
         <Select
           allowClear
-          placeholder="模块"
+          placeholder={t('ops.modulePh')}
           style={{ width: 150 }}
           value={filters.module || undefined}
           onChange={(v) => setFilters((f) => ({ ...f, module: v ?? '' }))}
-          options={OP_MODULE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          options={opModuleOpts}
         />
         <Select
           allowClear
-          placeholder="操作类型"
+          placeholder={t('ops.actionPh')}
           style={{ width: 150 }}
           value={filters.action || undefined}
           onChange={(v) => setFilters((f) => ({ ...f, action: v ?? '' }))}
-          options={OP_ACTION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          options={opActionOpts}
         />
         <Button
           type="primary"
@@ -122,7 +128,7 @@ export default function Operations() {
             setPage(1);
           }}
         >
-          查询
+          {t('ops.search')}
         </Button>
       </Space>
 
@@ -132,40 +138,40 @@ export default function Operations() {
         dataSource={data?.items ?? []}
         scroll={{ x: 1000 }}
         columns={[
-          { title: '时间', dataIndex: 'created_at', width: 170, render: fmtTime },
-          { title: '操作人', dataIndex: 'operator', width: 110 },
+          { title: t('ops.colTime'), dataIndex: 'created_at', width: 170, render: fmtTime },
+          { title: t('ops.colOperator'), dataIndex: 'operator', width: 110 },
           {
-            title: '操作类型',
+            title: t('ops.colAction'),
             dataIndex: 'action',
             width: 100,
             render: (v: string) => (
               <Tag color={v === 'delete' ? 'red' : v === 'create' ? 'green' : 'blue'}>
-                {OP_ACTION_MAP.labels[v] ?? v}
+                {opActionLbl(v)}
               </Tag>
             ),
           },
           {
-            title: '模块',
+            title: t('ops.colModule'),
             dataIndex: 'module',
             width: 110,
-            render: (v: string) => <Tag>{OP_MODULE_MAP.labels[v] ?? v}</Tag>,
+            render: (v: string) => <Tag>{opModuleLbl(v)}</Tag>,
           },
-          { title: '对象', dataIndex: 'target', width: 160, ellipsis: true },
+          { title: t('ops.colTarget'), dataIndex: 'target', width: 160, ellipsis: true },
           { title: 'IP', dataIndex: 'ip', width: 130 },
           {
-            title: '配置生效',
+            title: t('ops.effective'),
             dataIndex: 'effective',
             width: 90,
-            render: (v: boolean) => (v ? <Tag color="green">已生效</Tag> : <Tag color="orange">待生效</Tag>),
+            render: (v: boolean) => (v ? <Tag color="green">{t('ops.effectiveYes')}</Tag> : <Tag color="orange">{t('ops.effectiveNo')}</Tag>),
           },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 100,
             fixed: 'right',
             render: (_: unknown, row: OpLogRow) => (
               <Button size="small" onClick={() => setDiffRow(row)}>
-                变更对比
+                {t('ops.diff')}
               </Button>
             ),
           },
@@ -175,7 +181,7 @@ export default function Operations() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -184,7 +190,7 @@ export default function Operations() {
       />
 
       <Modal
-        title={`变更对比 — ${diffRow ? `${OP_MODULE_MAP.labels[diffRow.module] ?? diffRow.module} / ${diffRow.target}` : ''}`}
+        title={t('ops.diffTitle', { detail: diffRow ? `${opModuleLbl(diffRow.module)} / ${diffRow.target}` : '' })}
         open={!!diffRow}
         onCancel={() => setDiffRow(null)}
         footer={null}
@@ -192,17 +198,21 @@ export default function Operations() {
       >
         <Row gutter={16}>
           <Col span={12}>
-            <Typography.Text type="secondary">变更前</Typography.Text>
+            <Typography.Text type="secondary">{t('ops.before')}</Typography.Text>
             <JsonView value={diffRow?.before_json} maxHeight={420} />
           </Col>
           <Col span={12}>
-            <Typography.Text type="secondary">变更后</Typography.Text>
+            <Typography.Text type="secondary">{t('ops.after')}</Typography.Text>
             <JsonView value={diffRow?.after_json} maxHeight={420} />
           </Col>
         </Row>
         <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-          操作人：{diffRow?.operator} ｜ 时间：{fmtTime(diffRow?.created_at)} ｜ IP：{diffRow?.ip} ｜{' '}
-          {diffRow?.effective ? '已生效' : '待生效'}
+          {t('ops.meta', {
+            operator: diffRow?.operator ?? '-',
+            time: fmtTime(diffRow?.created_at),
+            ip: diffRow?.ip ?? '-',
+            state: diffRow?.effective ? t('ops.effectiveYes') : t('ops.effectiveNo'),
+          })}
         </Typography.Paragraph>
       </Modal>
     </PageContainer>

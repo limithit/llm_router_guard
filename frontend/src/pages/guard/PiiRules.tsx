@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -28,7 +29,7 @@ import {
 import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
 import { piiApi } from '../../api/endpoints';
-import { ACTION_MAP, ACTION_OPTIONS, colorOf, labelOf, PII_CATEGORY_OPTIONS } from '../../constants/dicts';
+import { ACTION_META, PII_CATEGORY_META, colorOf, useDictLabel, useDictOptions } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
 import type { PiiFinding, PiiRule, PiiRuleInput, PiiRuleTemplate, RuleAction } from '../../api/types';
 
@@ -42,6 +43,11 @@ interface PiiFormValues {
 }
 
 export default function PiiRules() {
+  const { t } = useTranslation();
+  const catOpts = useDictOptions('piiCategory', PII_CATEGORY_META);
+  const actionOpts = useDictOptions('action', ACTION_META);
+  const catLbl = useDictLabel('piiCategory');
+  const actionLbl = useDictLabel('action');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -82,7 +88,7 @@ export default function PiiRules() {
     mutationFn: (body: PiiRuleInput) =>
       editing ? piiApi.update(editing.id, body) : piiApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '规则已更新' : '规则已创建');
+      message.success(editing ? t('pii.updated') : t('pii.created'));
       setModalOpen(false);
       invalidate();
     },
@@ -92,7 +98,7 @@ export default function PiiRules() {
   const deleteMutation = useMutation({
     mutationFn: piiApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -103,7 +109,7 @@ export default function PiiRules() {
     mutationFn: async () => {
       const list = templates ?? [];
       const selected = list.filter((t) => checkedTemplates.includes(t.name));
-      if (!selected.length) throw new Error('未勾选任何模板');
+      if (!selected.length) throw new Error(t('pii.noTemplateChecked'));
       let ok = 0;
       const errors: string[] = [];
       for (const t of selected) {
@@ -126,8 +132,8 @@ export default function PiiRules() {
     onSuccess: (r) => {
       message.success(
         r.failed.length
-          ? `已创建 ${r.ok} 条，失败 ${r.failed.length} 条：${r.failed.join('、')}`
-          : `已从预置模板创建 ${r.ok} 条规则`
+          ? t('pii.tplCreated', { ok: r.ok, n: r.failed.length, failed: r.failed.join(', ') })
+          : t('pii.tplCreatedAll', { ok: r.ok })
       );
       setTemplateOpen(false);
       setCheckedTemplates([]);
@@ -189,7 +195,7 @@ export default function PiiRules() {
 
   const runTest = async () => {
     if (!testText.trim()) {
-      message.warning('请输入要测试的文本');
+      message.warning(t('pii.testInputReq'));
       return;
     }
     setTestLoading(true);
@@ -206,18 +212,18 @@ export default function PiiRules() {
 
   return (
     <PageContainer
-      title="PII 规则管理"
-      description="配置个人身份信息（手机号/身份证/邮箱等）识别与处理策略（REQ-009）。"
+      title={t('pii.title')}
+      description={t('pii.desc')}
       extra={
         <>
           <Button icon={<ExperimentOutlined />} onClick={() => setTestOpen(true)}>
-            测试工具
+            {t('pii.testTool')}
           </Button>
           <Button icon={<CheckSquareOutlined />} onClick={openTemplateModal}>
-            从预置模板添加
+            {t('pii.fromTemplates')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建规则
+            {t('pii.add')}
           </Button>
         </>
       }
@@ -225,14 +231,14 @@ export default function PiiRules() {
       <Space style={{ marginBottom: 12 }}>
         <Input.Search
           allowClear
-          placeholder="按规则名搜索"
+          placeholder={t('pii.searchPh')}
           style={{ width: 240 }}
           onSearch={(v) => {
             setPage(1);
             setKeyword(v);
           }}
         />
-        <Button onClick={() => setKeyword('')}>重置</Button>
+        <Button onClick={() => setKeyword('')}>{t('common.reset')}</Button>
       </Space>
 
       <Table<PiiRule>
@@ -242,55 +248,55 @@ export default function PiiRules() {
         scroll={{ x: 900 }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '规则名', dataIndex: 'name', width: 140 },
+          { title: t('pii.colName'), dataIndex: 'name', width: 140 },
           {
-            title: '类别',
+            title: t('pii.colCategory'),
             dataIndex: 'category',
             width: 120,
-            render: (v: string) => labelOf(Object.fromEntries(PII_CATEGORY_OPTIONS.map((o) => [o.value, o.label])), v),
+            render: (v: string) => catLbl(v),
           },
           {
-            title: '正则表达式',
+            title: t('pii.colPattern'),
             dataIndex: 'pattern',
             ellipsis: true,
             render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
           },
-          { title: '替换符', dataIndex: 'replacement', width: 130, render: (v: string) => v || '-' },
+          { title: t('pii.colReplacement'), dataIndex: 'replacement', width: 130, render: (v: string) => v || '-' },
           {
-            title: '动作',
+            title: t('pii.colAction'),
             dataIndex: 'action',
             width: 90,
             render: (v: RuleAction) => (
-              <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+              <Tag color={colorOf(ACTION_META, v)}>{actionLbl(v)}</Tag>
             ),
           },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: PiiRule) => (
               <StatusSwitch checked={record.enabled} onChange={(c) => toggleEnabled(record, c)} />
             ),
           },
-          { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
+          { title: t('common.createdAt'), dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 140,
             fixed: 'right',
             render: (_: unknown, record: PiiRule) => (
               <Space>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除规则"
-                  description={`确认删除「${record.name}」？`}
+                  title={t('pii.deleteTitle')}
+                  description={t('pii.deleteConfirm', { name: record.name })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -302,7 +308,7 @@ export default function PiiRules() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -312,7 +318,7 @@ export default function PiiRules() {
 
       {/* 新增 / 编辑 */}
       <Modal
-        title={editing ? `编辑规则：${editing.name}` : '新建 PII 规则'}
+        title={editing ? t('pii.editTitle', { name: editing.name }) : t('pii.createTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleSave}
@@ -322,37 +328,37 @@ export default function PiiRules() {
       >
         <Form<PiiFormValues> form={form} layout="vertical">
           <Space size={16} align="start" wrap>
-            <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名' }]}>
-              <Input placeholder="例如 手机号" style={{ width: 200 }} />
+            <Form.Item name="name" label={t('pii.nameLabel')} rules={[{ required: true, message: t('pii.nameReq') }]}>
+              <Input placeholder={t('pii.namePh')} style={{ width: 200 }} />
             </Form.Item>
-            <Form.Item name="category" label="类别" rules={[{ required: true, message: '请输入类别' }]}>
+            <Form.Item name="category" label={t('pii.colCategory')} rules={[{ required: true, message: t('pii.categoryReq') }]}>
               <Select
                 style={{ width: 180 }}
                 showSearch
-                placeholder="选择或输入类别"
-                options={PII_CATEGORY_OPTIONS}
+                placeholder={t('pii.categoryPh')}
+                options={catOpts}
               />
             </Form.Item>
           </Space>
           <Form.Item
             name="pattern"
-            label="正则表达式"
-            tooltip="用于识别 PII 的正则；合法性由后端校验"
-            rules={[{ required: true, message: '请输入正则表达式' }]}
+            label={t('pii.colPattern')}
+            tooltip={t('pii.patternTooltip')}
+            rules={[{ required: true, message: t('pii.patternReq') }]}
           >
-            <Input placeholder="例如 1[3-9]\\d{9}" />
+            <Input placeholder={t('pii.patternPh')} />
           </Form.Item>
           <Space size={16} align="start" wrap>
-            <Form.Item name="replacement" label="替换符（脱敏展示）">
-              <Input placeholder="例如 [PHONE]" style={{ width: 200 }} />
+            <Form.Item name="replacement" label={t('pii.replacementLabel')}>
+              <Input placeholder={t('pii.replacementPh')} style={{ width: 200 }} />
             </Form.Item>
-            <Form.Item name="action" label="处理动作" rules={[{ required: true }]}>
+            <Form.Item name="action" label={t('pii.actionLabel')} rules={[{ required: true }]}>
               <Select
                 style={{ width: 140 }}
-                options={ACTION_OPTIONS}
+                options={actionOpts}
               />
             </Form.Item>
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
               <Switch />
             </Form.Item>
           </Space>
@@ -361,7 +367,7 @@ export default function PiiRules() {
 
       {/* 预置模板批量添加 */}
       <Modal
-        title="从预置模板添加 PII 规则"
+        title={t('pii.templateTitle')}
         open={templateOpen}
         onOk={() => createTemplates.mutate()}
         confirmLoading={createTemplates.isPending}
@@ -379,7 +385,7 @@ export default function PiiRules() {
               setCheckedTemplates(e.target.checked ? templateNames : []);
             }}
           >
-            全选
+            {t('pii.selectAll')}
           </Checkbox>
         </div>
         <Table<PiiRuleTemplate>
@@ -393,21 +399,21 @@ export default function PiiRules() {
             onChange: (keys) => setCheckedTemplates(keys.map(String)),
           }}
           columns={[
-            { title: '规则名', dataIndex: 'name' },
-            { title: '类别', dataIndex: 'category', width: 120 },
+            { title: t('pii.colName'), dataIndex: 'name' },
+            { title: t('pii.colCategory'), dataIndex: 'category', width: 120 },
             {
-              title: '正则表达式',
+              title: t('pii.colPattern'),
               dataIndex: 'pattern',
               ellipsis: true,
               render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
             },
-            { title: '替换符', dataIndex: 'replacement', width: 130 },
+            { title: t('pii.colReplacement'), dataIndex: 'replacement', width: 130 },
             {
-              title: '动作',
+              title: t('pii.colAction'),
               dataIndex: 'action',
               width: 90,
               render: (v: RuleAction) => (
-                <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+                <Tag color={colorOf(ACTION_META, v)}>{actionLbl(v)}</Tag>
               ),
             },
           ]}
@@ -416,24 +422,24 @@ export default function PiiRules() {
 
       {/* 测试工具 */}
       <Drawer
-        title="PII 识别测试"
+        title={t('pii.testTitle')}
         open={testOpen}
         onClose={() => setTestOpen(false)}
         width={560}
         extra={
           <Button type="primary" loading={testLoading} onClick={runTest}>
-            开始测试
+            {t('pii.testRun')}
           </Button>
         }
       >
         <Typography.Paragraph type="secondary">
-          输入一段文本，预览识别到的 PII 与脱敏后的结果。
+          {t('pii.testHint')}
         </Typography.Paragraph>
-        <Input.TextArea rows={6} placeholder="例如：我的手机号是 13800138000…" value={testText} onChange={(e) => setTestText(e.target.value)} />
+        <Input.TextArea rows={6} placeholder={t('pii.testPh')} value={testText} onChange={(e) => setTestText(e.target.value)} />
         {testResult ? (
           <div style={{ marginTop: 16 }}>
             {testResult.findings.length === 0 ? (
-              <Typography.Paragraph type="secondary">未识别到 PII。</Typography.Paragraph>
+              <Typography.Paragraph type="secondary">{t('pii.testNone')}</Typography.Paragraph>
             ) : (
               <Table<PiiFinding>
                 style={{ marginBottom: 12 }}
@@ -442,15 +448,15 @@ export default function PiiRules() {
                 rowKey={(r, i) => `${r.rule}-${r.sample}-${i}`}
                 dataSource={testResult.findings}
                 columns={[
-                  { title: '规则', dataIndex: 'rule' },
-                  { title: '类别', dataIndex: 'category', width: 140 },
-                  { title: '命中示例', dataIndex: 'sample' },
+                  { title: t('pii.testColRule'), dataIndex: 'rule' },
+                  { title: t('pii.colCategory'), dataIndex: 'category', width: 140 },
+                  { title: t('pii.testColSample'), dataIndex: 'sample' },
                 ]}
               />
             )}
-            <Typography.Text strong>脱敏结果：</Typography.Text>
+            <Typography.Text strong>{t('pii.testMasked')}</Typography.Text>
             <Typography.Paragraph style={{ marginTop: 4 }} copyable>
-              {testResult.masked_text || '(无脱敏输出)'}
+              {testResult.masked_text || t('pii.testMaskedNone')}
             </Typography.Paragraph>
           </div>
         ) : null}
@@ -460,9 +466,10 @@ export default function PiiRules() {
 }
 
 function AlertTip() {
+  const { t } = useTranslation();
   return (
     <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-      <ProfileOutlined /> 勾选预置模板（手机号/身份证/邮箱/银行卡/地址）后点击确定批量创建，已存在同名规则会由后端去重提示。
+      <ProfileOutlined /> {t('pii.tplTip')}
     </Typography.Paragraph>
   );
 }

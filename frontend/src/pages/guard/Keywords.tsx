@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -29,16 +30,15 @@ import {
 import type { UploadFile } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
+import i18n from '../../i18n';
 import { keywordApi } from '../../api/endpoints';
 import {
-  ACTION_MAP,
-  ACTION_OPTIONS,
-  CATEGORY_MAP,
-  KEYWORD_CATEGORY_OPTIONS,
-  MATCH_MODE_MAP,
-  MATCH_MODE_OPTIONS,
-  colorOf,
-  labelOf,
+  ACTION_META,
+  KEYWORD_CATEGORY_META,
+  MATCH_MODE_META,
+  useDictLabel,
+  useDictOptions,
+  dictColor,
 } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
 import type { GuardHit, Keyword, KeywordCategory, KeywordInput, MatchMode, RuleAction } from '../../api/types';
@@ -54,6 +54,7 @@ interface KeywordFormValues {
 const CSV_HEADER = 'word,category,match_mode,action';
 
 export default function Keywords() {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -80,6 +81,14 @@ export default function Keywords() {
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ blocked: boolean; hits: GuardHit[] } | null>(null);
 
+  // ── i18n dicts ────────────────────────────────────────────────
+  const catOpts   = useDictOptions('keywordCategory', KEYWORD_CATEGORY_META);
+  const actOpts   = useDictOptions('action', ACTION_META).filter((a) => a.value !== 'mask');
+  const modeOpts  = useDictOptions('matchMode', MATCH_MODE_META);
+  const catLbl    = useDictLabel('keywordCategory');
+  const modeLbl   = useDictLabel('matchMode');
+  const actLbl    = useDictLabel('action');
+
   const queryEnabled = (v: boolean | null) => (v === null ? undefined : v);
 
   const { data, isLoading } = useQuery({
@@ -102,7 +111,7 @@ export default function Keywords() {
     mutationFn: (body: KeywordInput) =>
       editing ? keywordApi.update(editing.id, body) : keywordApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '敏感词已更新' : '敏感词已添加');
+      message.success(editing ? t('keywords.savedEdit') : t('keywords.savedNew'));
       setModalOpen(false);
       invalidate();
     },
@@ -112,7 +121,7 @@ export default function Keywords() {
   const deleteMutation = useMutation({
     mutationFn: keywordApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('keywords.deleted'));
       invalidate();
     },
     onError: () => undefined,
@@ -121,7 +130,7 @@ export default function Keywords() {
   const importMutation = useMutation({
     mutationFn: keywordApi.importCsv,
     onSuccess: (res) => {
-      message.success(`导入完成：新增 ${res.created} 条，跳过 ${res.skipped} 条`);
+      message.success(t('keywords.importDone', { created: res.created, skipped: res.skipped }));
       setImportOpen(false);
       setPasteText('');
       setCsvFile(null);
@@ -175,34 +184,34 @@ export default function Keywords() {
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.onerror = () => reject(new Error(i18n.t('keywords.fileReadFailed')));
       reader.readAsText(file, 'utf-8');
     });
 
   const doImport = async () => {
     if (importMode === 'paste') {
       if (!pasteText.trim()) {
-        message.warning('请先粘贴 CSV 内容');
+        message.warning(t('keywords.pasteFirst'));
         return;
       }
       importMutation.mutate(pasteText);
       return;
     }
     if (!csvFile) {
-      message.warning('请选择 CSV 文件');
+      message.warning(t('keywords.selectFileFirst'));
       return;
     }
     try {
       const text = await readFileAsText(csvFile);
       importMutation.mutate(text);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '文件读取失败');
+      message.error(e instanceof Error ? e.message : i18n.t('keywords.fileReadFailed'));
     }
   };
 
   const runTest = async () => {
     if (!testText.trim()) {
-      message.warning('请输入要测试的文本');
+      message.warning(t('keywords.testTextRequired'));
       return;
     }
     setTestLoading(true);
@@ -210,7 +219,7 @@ export default function Keywords() {
       const res = await keywordApi.test(testText);
       setTestResult(res);
     } catch {
-      // 拦截器已提示
+      // interceptor already showed error
     } finally {
       setTestLoading(false);
     }
@@ -218,21 +227,21 @@ export default function Keywords() {
 
   return (
     <PageContainer
-      title="敏感词管理"
-      description="管理敏感词库（REQ-008），支持分类/模式/动作/启用筛选、批量导入导出与命中测试。"
+      title={t('keywords.title')}
+      description={t('keywords.description')}
       extra={
         <>
           <Button icon={<ExperimentOutlined />} onClick={() => setTestOpen(true)}>
-            测试工具
+            {t('keywords.testTool')}
           </Button>
           <Button icon={<DownloadOutlined />} onClick={() => void keywordApi.exportCsv()}>
-            导出 CSV
+            {t('keywords.exportCsv')}
           </Button>
           <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
-            批量导入
+            {t('keywords.bulkImport')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            添加敏感词
+            {t('keywords.add')}
           </Button>
         </>
       }
@@ -240,7 +249,7 @@ export default function Keywords() {
       <Space wrap style={{ marginBottom: 12 }}>
         <Input.Search
           allowClear
-          placeholder="搜索关键词"
+          placeholder={t('keywords.searchPlaceholder')}
           style={{ width: 200 }}
           onSearch={(v) => {
             setPage(1);
@@ -249,9 +258,9 @@ export default function Keywords() {
         />
         <Select
           allowClear
-          placeholder="分类"
+          placeholder={t('keywords.categoryPlaceholder')}
           style={{ width: 130 }}
-          options={KEYWORD_CATEGORY_OPTIONS}
+          options={catOpts}
           value={filters.category || undefined}
           onChange={(v: KeywordCategory) => {
             setPage(1);
@@ -260,9 +269,9 @@ export default function Keywords() {
         />
         <Select
           allowClear
-          placeholder="动作"
+          placeholder={t('keywords.actionPlaceholder')}
           style={{ width: 120 }}
-          options={ACTION_OPTIONS.filter((a) => a.value !== 'mask')}
+          options={actOpts}
           value={filters.action || undefined}
           onChange={(v: RuleAction) => {
             setPage(1);
@@ -271,11 +280,11 @@ export default function Keywords() {
         />
         <Select
           allowClear
-          placeholder="启用状态"
+          placeholder={t('keywords.enabledFilter')}
           style={{ width: 120 }}
           options={[
-            { value: true, label: '启用' },
-            { value: false, label: '停用' },
+            { value: true, label: t('keywords.enabledTrue') },
+            { value: false, label: t('keywords.enabledFalse') },
           ]}
           value={filters.enabled ?? undefined}
           onChange={(v: boolean) => {
@@ -289,7 +298,7 @@ export default function Keywords() {
             setFilters({ keyword: '', category: '', enabled: null, action: '' });
           }}
         >
-          重置
+          {t('common.reset')}
         </Button>
       </Space>
 
@@ -299,57 +308,57 @@ export default function Keywords() {
         dataSource={data?.items ?? []}
         scroll={{ x: 860 }}
         columns={[
-          { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '关键词', dataIndex: 'word', ellipsis: true },
+          { title: t('keywords.colId'), dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
+          { title: t('keywords.colWord'), dataIndex: 'word', ellipsis: true },
           {
-            title: '分类',
+            title: t('keywords.colCategory'),
             dataIndex: 'category',
             width: 110,
             render: (v: KeywordCategory) => (
-              <Tag color={colorOf(CATEGORY_MAP.colors, v)}>{labelOf(CATEGORY_MAP.labels, v)}</Tag>
+              <Tag color={dictColor(KEYWORD_CATEGORY_META, v)}>{catLbl(v)}</Tag>
             ),
           },
           {
-            title: '匹配模式',
+            title: t('keywords.colMatchMode'),
             dataIndex: 'match_mode',
             width: 120,
-            render: (v: MatchMode) => labelOf(MATCH_MODE_MAP.labels, v),
+            render: (v: MatchMode) => modeLbl(v),
           },
           {
-            title: '动作',
+            title: t('keywords.colAction'),
             dataIndex: 'action',
             width: 90,
             render: (v: RuleAction) => (
-              <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+              <Tag color={dictColor(ACTION_META, v)}>{actLbl(v)}</Tag>
             ),
           },
           {
-            title: '启用',
+            title: t('keywords.colEnabled'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: Keyword) => (
               <StatusSwitch checked={record.enabled} onChange={(c) => toggleEnabled(record, c)} />
             ),
           },
-          { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
+          { title: t('keywords.colCreatedAt'), dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
           {
-            title: '操作',
+            title: t('keywords.colOperation'),
             key: 'action',
             width: 140,
             fixed: 'right',
             render: (_: unknown, record: Keyword) => (
               <Space>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('keywords.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除敏感词"
-                  description={`确认删除「${record.word}」？`}
+                  title={t('keywords.deleteTitle')}
+                  description={t('keywords.deleteConfirm', { word: record.word })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('keywords.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -361,7 +370,7 @@ export default function Keywords() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (n) => t('common.total', { total: n }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -369,9 +378,9 @@ export default function Keywords() {
         }}
       />
 
-      {/* 新增/编辑 */}
+      {/* Create / Edit */}
       <Modal
-        title={editing ? `编辑敏感词 #${editing.id}` : '添加敏感词'}
+        title={editing ? t('keywords.editTitle', { id: editing.id }) : t('keywords.addTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleSave}
@@ -382,58 +391,57 @@ export default function Keywords() {
         <Form<KeywordFormValues> form={form} layout="vertical">
           <Form.Item
             name="word"
-            label="关键词文本"
-            rules={[{ required: true, message: '请输入关键词' }]}
+            label={t('keywords.wordLabel')}
+            rules={[{ required: true, message: t('keywords.wordRequired') }]}
           >
-            <Input placeholder="要拦截/告警/记录的关键词" />
+            <Input placeholder={t('keywords.wordPlaceholder')} />
           </Form.Item>
           <Space size={16} align="start" wrap>
-            <Form.Item name="category" label="所属类别" rules={[{ required: true }]}>
-              <Select style={{ width: 160 }} options={KEYWORD_CATEGORY_OPTIONS} />
+            <Form.Item name="category" label={t('keywords.catLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 160 }} options={catOpts} />
             </Form.Item>
-            <Form.Item name="match_mode" label="匹配模式" rules={[{ required: true }]}>
-              <Select style={{ width: 160 }} options={MATCH_MODE_OPTIONS} />
+            <Form.Item name="match_mode" label={t('keywords.matchModeLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 160 }} options={modeOpts} />
             </Form.Item>
           </Space>
           <Space size={16} align="start" wrap>
-            <Form.Item name="action" label="处理动作" rules={[{ required: true }]}>
-              <Select style={{ width: 160 }} options={ACTION_OPTIONS.filter((a) => a.value !== 'mask')} />
+            <Form.Item name="action" label={t('keywords.actLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 160 }} options={actOpts} />
             </Form.Item>
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('keywords.enabledLabel')} valuePropName="checked">
               <Switch />
             </Form.Item>
           </Space>
         </Form>
       </Modal>
 
-      {/* 批量导入 */}
+      {/* Bulk Import */}
       <Modal
-        title="批量导入敏感词（CSV）"
+        title={t('keywords.importTitle')}
         open={importOpen}
         confirmLoading={importMutation.isPending}
         onOk={doImport}
-        okText="开始导入"
+        okText={t('keywords.importOk')}
         onCancel={() => setImportOpen(false)}
         width={640}
       >
         <Typography.Paragraph type="secondary">
-          CSV 格式（每行一条，第一行可为表头也可省略）：{CSV_HEADER}
+          {t('keywords.importFormat', { header: CSV_HEADER })}
           <br />
-          枚举取值：category 为 political/porn/violence/illegal/discrimination/custom；match_mode 为
-          contains/exact/regex；action 为 block/warn/log；enabled 可省略（默认 true）。
+          {t('keywords.importEnums')}
         </Typography.Paragraph>
         <Radio.Group
           value={importMode}
           onChange={(e) => setImportMode(e.target.value)}
           style={{ marginBottom: 12 }}
         >
-          <Radio.Button value="paste">粘贴文本</Radio.Button>
-          <Radio.Button value="upload">上传 CSV 文件</Radio.Button>
+          <Radio.Button value="paste">{t('keywords.importPaste')}</Radio.Button>
+          <Radio.Button value="upload">{t('keywords.importUpload')}</Radio.Button>
         </Radio.Group>
         {importMode === 'paste' ? (
           <Input.TextArea
             rows={8}
-            placeholder={'例如：\n赌博,political,contains,block\n暴力催收,violence,exact,block'}
+            placeholder={t('keywords.importPastePlaceholder')}
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
           />
@@ -443,7 +451,7 @@ export default function Keywords() {
             maxCount={1}
             beforeUpload={(file) => {
               setCsvFile(file);
-              return false; // 阻止自动上传
+              return false; // prevent auto-upload
             }}
             onRemove={() => setCsvFile(null)}
             fileList={
@@ -452,47 +460,47 @@ export default function Keywords() {
                 : []
             }
           >
-            <Button icon={<UploadOutlined />}>选择 CSV 文件</Button>
+            <Button icon={<UploadOutlined />}>{t('keywords.selectFile')}</Button>
           </Upload>
         )}
       </Modal>
 
-      {/* 测试工具 */}
+      {/* Test Drawer */}
       <Drawer
-        title="敏感词命中测试"
+        title={t('keywords.testDrawerTitle')}
         open={testOpen}
         onClose={() => setTestOpen(false)}
         width={560}
         extra={
           <Button type="primary" loading={testLoading} onClick={runTest}>
-            开始测试
+            {t('keywords.testRun')}
           </Button>
         }
       >
-        <Typography.Paragraph type="secondary">输入一段文本，检测其中命中的敏感词与处理动作。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">{t('keywords.testHint')}</Typography.Paragraph>
         <Input.TextArea
           rows={6}
-          placeholder="输入待检测文本…"
+          placeholder={t('keywords.testPlaceholder')}
           value={testText}
           onChange={(e) => setTestText(e.target.value)}
         />
         {testResult ? (
           <div style={{ marginTop: 16 }}>
             <Typography.Text strong>
-              检测结果：
+              {t('keywords.testResultLabel')}
               {testResult.blocked ? (
                 <Tag color="error" style={{ marginLeft: 8 }}>
-                  判定为需拦截
+                  {t('keywords.testBlocked')}
                 </Tag>
               ) : (
                 <Tag color="success" style={{ marginLeft: 8 }}>
-                  未命中拦截动作
+                  {t('keywords.testNotBlocked')}
                 </Tag>
               )}
             </Typography.Text>
             {testResult.hits.length === 0 ? (
               <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-                无命中。
+                {t('keywords.testNoHits')}
               </Typography.Paragraph>
             ) : (
               <Table<GuardHit>
@@ -502,20 +510,20 @@ export default function Keywords() {
                 pagination={false}
                 dataSource={testResult.hits}
                 columns={[
-                  { title: '类型', dataIndex: 'type', width: 100 },
-                  { title: '命中内容', dataIndex: 'value', ellipsis: true },
+                  { title: t('keywords.colHitType'), dataIndex: 'type', width: 100 },
+                  { title: t('keywords.colHitValue'), dataIndex: 'value', ellipsis: true },
                   {
-                    title: '分类',
+                    title: t('keywords.colCategory'),
                     dataIndex: 'category',
                     width: 120,
-                    render: (v: string) => labelOf(CATEGORY_MAP.labels, v),
+                    render: (v: string) => catLbl(v),
                   },
                   {
-                    title: '动作',
+                    title: t('keywords.colAction'),
                     dataIndex: 'action',
                     width: 100,
                     render: (v: string) => (
-                      <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+                      <Tag color={dictColor(ACTION_META, v)}>{actLbl(v)}</Tag>
                     ),
                   },
                 ]}

@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   App,
@@ -26,6 +27,7 @@ import { fmtTime } from '../../utils/format';
 import type { AdminUserRow, SecuritySettings } from '../../api/types';
 
 export default function SecuritySettingsPage() {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<SecuritySettings>();
@@ -49,14 +51,14 @@ export default function SecuritySettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: (v: SecuritySettings) => securityApi.save(v),
-    onSuccess: () => message.success('MFA 全局配置已保存，立即生效（REQ-020）'),
+    onSuccess: () => message.success(t('security.saveOk')),
     onError: () => undefined,
   });
 
   const unbindMutation = useMutation({
     mutationFn: userApi.unbindMfa,
     onSuccess: () => {
-      message.success('已强制解绑该用户的 MFA（已记录操作审计）');
+      message.success(t('security.unbindOk'));
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
     onError: () => undefined,
@@ -65,7 +67,7 @@ export default function SecuritySettingsPage() {
   const unlockMutation = useMutation({
     mutationFn: userApi.unlock,
     onSuccess: () => {
-      message.success('账户已解锁');
+      message.success(t('security.unlockOk'));
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
     onError: () => undefined,
@@ -73,8 +75,8 @@ export default function SecuritySettingsPage() {
 
   return (
     <PageContainer
-      title="安全设置"
-      description="管理后台 MFA（TOTP）全局策略与用户设备管理（REQ-020 / REQ-023）。"
+      title={t('security.title')}
+      description={t('security.desc')}
       extra={
         <Button
           type="primary"
@@ -82,50 +84,50 @@ export default function SecuritySettingsPage() {
           loading={saveMutation.isPending}
           onClick={async () => saveMutation.mutate(await form.validateFields())}
         >
-          保存 MFA 配置
+          {t('security.save')}
         </Button>
       }
     >
-      <Card size="small" title="MFA 全局配置" loading={isLoading}>
+      <Card size="small" title={t('security.mfaCard')} loading={isLoading}>
         <Form<SecuritySettings> form={form} layout="vertical" style={{ maxWidth: 520 }}>
-          <Form.Item name="mfa_enabled" label="启用 MFA" valuePropName="checked">
+          <Form.Item name="mfa_enabled" label={t('security.mfaEnabled')} valuePropName="checked">
             <Switch />
           </Form.Item>
           <Form.Item
             name="mfa_required_for_all"
-            label="强制所有用户启用 MFA"
+            label={t('security.mfaRequired')}
             valuePropName="checked"
-            tooltip="开启后未绑定 MFA 的用户登录后将被引导至绑定流程"
+            tooltip={t('security.mfaRequiredTooltip')}
           >
             <Switch />
           </Form.Item>
           <Space size={16}>
             <Form.Item
               name="recovery_code_count"
-              label="备用恢复码数量"
-              rules={[{ required: true, message: '请输入数量' }]}
+              label={t('security.recoveryCount')}
+              rules={[{ required: true, message: t('security.recoveryReq') }]}
             >
               <InputNumber min={4} max={20} precision={0} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item
               name="grace_days"
-              label="强制启用宽限期"
-              rules={[{ required: true, message: '请输入天数' }]}
+              label={t('security.graceDays')}
+              rules={[{ required: true, message: t('security.graceReq') }]}
             >
-              <InputNumber min={0} max={90} precision={0} style={{ width: 140 }} addonAfter="天" />
+              <InputNumber min={0} max={90} precision={0} style={{ width: 140 }} addonAfter={t('security.dayUnit')} />
             </Form.Item>
           </Space>
           <Alert
             type="info"
             showIcon
-            message="验证方式：TOTP（Google Authenticator / Microsoft Authenticator 等）"
+            message={t('security.totpTip')}
           />
         </Form>
       </Card>
 
       <Divider />
 
-      <Card size="small" title="用户 MFA 设备管理">
+      <Card size="small" title={t('security.usersCard')}>
         <Table<AdminUserRow>
           rowKey="id"
           loading={usersQuery.isLoading}
@@ -133,48 +135,48 @@ export default function SecuritySettingsPage() {
           scroll={{ x: 800 }}
           columns={[
             { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-            { title: '用户名', dataIndex: 'username', width: 160 },
+            { title: t('security.colUsername'), dataIndex: 'username', width: 160 },
             {
-              title: 'MFA 状态',
+              title: t('security.colMfa'),
               dataIndex: 'mfa_enabled',
               width: 110,
               render: (v: boolean) =>
-                v ? <Tag color="green">已绑定</Tag> : <Tag color="default">未绑定</Tag>,
+                v ? <Tag color="green">{t('security.mfaBound')}</Tag> : <Tag color="default">{t('security.mfaUnbound')}</Tag>,
             },
             {
-              title: '账户状态',
+              title: t('security.colLock'),
               dataIndex: 'locked',
               width: 100,
               render: (v: boolean) =>
-                v ? <Tag color="red">已锁定</Tag> : <Tag color="blue">正常</Tag>,
+                v ? <Tag color="red">{t('security.locked')}</Tag> : <Tag color="blue">{t('security.normal')}</Tag>,
             },
-            { title: '最后登录', dataIndex: 'last_login_at', width: 170, render: fmtTime },
+            { title: t('security.colLastLogin'), dataIndex: 'last_login_at', width: 170, render: fmtTime },
             {
-              title: '操作',
+              title: t('common.action'),
               key: 'action',
               fixed: 'right',
               width: 220,
               render: (_: unknown, row: AdminUserRow) => (
                 <Space>
                   <Popconfirm
-                    title="强制解绑 MFA"
-                    description={`确认解绑「${row.username}」的 MFA 设备？该操作将记录审计。`}
+                    title={t('security.unbindTitle')}
+                    description={t('security.unbindConfirm', { username: row.username })}
                     okButtonProps={{ danger: true }}
                     disabled={!row.mfa_enabled}
                     onConfirm={() => unbindMutation.mutate(row.id)}
                   >
                     <Button size="small" danger disabled={!row.mfa_enabled}>
-                      强制解绑
+                      {t('security.unbind')}
                     </Button>
                   </Popconfirm>
                   <Popconfirm
-                    title="解锁账户"
-                    description={`确认解锁「${row.username}」？`}
+                    title={t('security.unlockTitle')}
+                    description={t('security.unlockConfirm', { username: row.username })}
                     disabled={!row.locked}
                     onConfirm={() => unlockMutation.mutate(row.id)}
                   >
                     <Button size="small" disabled={!row.locked}>
-                      解锁
+                      {t('security.unlock')}
                     </Button>
                   </Popconfirm>
                 </Space>
@@ -186,7 +188,7 @@ export default function SecuritySettingsPage() {
             pageSize,
             total: usersQuery.data?.total ?? 0,
             showSizeChanger: true,
-            showTotal: (t) => `共 ${t} 条`,
+            showTotal: (total) => t('common.total', { total }),
           }}
           onChange={(p) => {
             setPage(p.current ?? 1);

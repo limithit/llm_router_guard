@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   App,
@@ -46,6 +47,7 @@ const parseStrArr = (s?: string | null): string[] => {
 };
 
 export default function ApiKeys() {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -93,7 +95,7 @@ export default function ApiKeys() {
     mutationFn: ({ id, body }: { id: number; body: Parameters<typeof apikeyApi.update>[1] }) =>
       apikeyApi.update(id, body),
     onSuccess: () => {
-      message.success('API Key 已更新');
+      message.success(t('apikeys.updated'));
       setEditing(null);
       invalidate();
     },
@@ -103,7 +105,7 @@ export default function ApiKeys() {
   const deleteMutation = useMutation({
     mutationFn: apikeyApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -175,11 +177,11 @@ export default function ApiKeys() {
 
   return (
     <PageContainer
-      title="API Key 管理"
-      description="业务方调用网关的凭证（REQ-002）。Key 仅创建时完整展示一次，请妥善保存。"
+      title={t('apikeys.title')}
+      description={t('apikeys.desc')}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          创建 API Key
+          {t('apikeys.add')}
         </Button>
       }
     >
@@ -190,42 +192,42 @@ export default function ApiKeys() {
         scroll={{ x: 900 }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '名称', dataIndex: 'name', width: 160 },
+          { title: t('apikeys.colName'), dataIndex: 'name', width: 160 },
           {
-            title: 'Key（脱敏）',
+            title: t('apikeys.colKey'),
             dataIndex: 'key_masked',
             width: 180,
             render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
           },
-          { title: '备注', dataIndex: 'remark', ellipsis: true },
+          { title: t('common.remark'), dataIndex: 'remark', ellipsis: true },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, row: ApiKey) => (
               <StatusSwitch checked={row.enabled} onChange={(c) => toggleEnabled(row, c)} />
             ),
           },
-          { title: '最后使用', dataIndex: 'last_used_at', width: 170, render: fmtTime },
-          { title: '创建时间', dataIndex: 'created_at', width: 170, render: fmtTime },
+          { title: t('apikeys.colLastUsed'), dataIndex: 'last_used_at', width: 170, render: fmtTime },
+          { title: t('common.createdAt'), dataIndex: 'created_at', width: 170, render: fmtTime },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 140,
             fixed: 'right',
             render: (_: unknown, row: ApiKey) => (
               <Space>
                 <Button size="small" onClick={() => openEdit(row)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除 API Key"
-                  description={`确认删除「${row.name}」？该 Key 将立即失效。`}
+                  title={t('apikeys.deleteTitle')}
+                  description={t('apikeys.deleteConfirm', { name: row.name })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(row.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -237,7 +239,7 @@ export default function ApiKeys() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -247,7 +249,7 @@ export default function ApiKeys() {
 
       {/* 创建 / 编辑弹窗 */}
       <Modal
-        title={editing ? `编辑 API Key「${editing.name}」` : '创建 API Key'}
+        title={editing ? t('apikeys.editTitle', { name: editing.name }) : t('apikeys.createTitle')}
         open={createOpen || !!editing}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
         onOk={handleOk}
@@ -261,44 +263,44 @@ export default function ApiKeys() {
         <Form<KeyFormValues> form={form} layout="vertical">
           <Form.Item
             name="name"
-            label="名称"
-            rules={[{ required: true, message: '请输入 Key 名称（业务方标识）' }]}
+            label={t('apikeys.colName')}
+            rules={[{ required: true, message: t('apikeys.nameReq') }]}
           >
-            <Input placeholder="如 team-a / 财务机器人" maxLength={64} />
+            <Input placeholder={t('apikeys.namePh')} maxLength={64} />
           </Form.Item>
-          <Form.Item name="remark" label="备注">
-            <Input.TextArea rows={2} placeholder="用途说明" maxLength={255} />
+          <Form.Item name="remark" label={t('common.remark')}>
+            <Input.TextArea rows={2} placeholder={t('apikeys.remarkPh')} maxLength={255} />
           </Form.Item>
           {editing && (
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
               <Switch />
             </Form.Item>
           )}
           <Form.Item
             name="allowed_models"
-            label="限定模型"
-            tooltip="留空 = 允许调用所有模型别名；选择后该 Key 只能调用所选别名。"
+            label={t('apikeys.modelsLabel')}
+            tooltip={t('apikeys.modelsTooltip')}
           >
             <Select
               mode="tags"
               allowClear
-              placeholder="留空允许全部；可选或输入别名"
+              placeholder={t('apikeys.modelsPh')}
               options={modelOptions}
               tokenSeparators={[',', '\n']}
             />
           </Form.Item>
           <Form.Item
             name="ip_allowlist_enabled"
-            label="启用 IP 白名单"
+            label={t('apikeys.ipEnabled')}
             valuePropName="checked"
-            tooltip="默认不启用；启用后仅列出的 IP/CIDR 可用此 Key 调用。"
+            tooltip={t('apikeys.ipEnabledTooltip')}
           >
             <Switch />
           </Form.Item>
           <Form.Item
             name="ip_allowlist_text"
-            label="IP 白名单"
-            tooltip="一行一个 CIDR，如 10.0.0.0/8、192.168.1.5。仅在「启用 IP 白名单」开启时生效。"
+            label={t('apikeys.ipLabel')}
+            tooltip={t('apikeys.ipTooltip')}
           >
             <Input.TextArea rows={3} placeholder={'10.0.0.0/8\n192.168.1.5\n2001:db8::/32'} />
           </Form.Item>
@@ -307,12 +309,12 @@ export default function ApiKeys() {
 
       {/* 创建成功：一次性展示完整 Key */}
       <Modal
-        title="API Key 创建成功"
+        title={t('apikeys.createdTitle')}
         open={!!created}
         onCancel={() => setCreated(null)}
         footer={
           <Button type="primary" onClick={() => setCreated(null)}>
-            我已保存
+            {t('apikeys.saved')}
           </Button>
         }
         width={560}
@@ -320,7 +322,7 @@ export default function ApiKeys() {
         <Alert
           type="warning"
           showIcon
-          message="完整 Key 仅展示这一次，关闭后无法再次查看，请立即复制保存。"
+          message={t('apikeys.createdWarn')}
           style={{ marginBottom: 12 }}
         />
         <Space.Compact style={{ width: '100%' }}>
@@ -330,15 +332,15 @@ export default function ApiKeys() {
             onClick={async () => {
               if (created?.key) {
                 await navigator.clipboard.writeText(created.key);
-                message.success('已复制到剪贴板');
+                message.success(t('apikeys.copied'));
               }
             }}
           >
-            复制
+            {t('apikeys.copy')}
           </Button>
         </Space.Compact>
         <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-          名称：{created?.name}（ID #{created?.id}）
+          {t('apikeys.meta', { name: created?.name ?? '', id: created?.id ?? '' })}
         </Typography.Paragraph>
       </Modal>
     </PageContainer>

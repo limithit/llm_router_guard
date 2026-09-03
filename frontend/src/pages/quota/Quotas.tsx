@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   AutoComplete,
@@ -26,13 +27,11 @@ import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
 import { apikeyApi, modelApi, quotaApi } from '../../api/endpoints';
 import {
-  OVER_ACTION_MAP,
-  OVER_ACTION_OPTIONS,
-  PERIOD_MAP,
-  PERIOD_OPTIONS,
-  QUOTA_TYPE_MAP,
-  QUOTA_TYPE_OPTIONS,
-  labelOf,
+  OVER_ACTION_META,
+  PERIOD_META,
+  QUOTA_TYPE_META,
+  useDictLabel,
+  useDictOptions,
 } from '../../constants/dicts';
 import { clampPercent, fmtNumber, fmtTime } from '../../utils/format';
 import type {
@@ -55,6 +54,12 @@ interface QuotaFormValues {
 }
 
 export default function Quotas() {
+  const { t } = useTranslation();
+  const typeOpts = useDictOptions('quotaType', QUOTA_TYPE_META);
+  const periodOpts = useDictOptions('period', PERIOD_META);
+  const overActionOpts = useDictOptions('overAction', OVER_ACTION_META);
+  const typeLbl = useDictLabel('quotaType');
+  const periodLbl = useDictLabel('period');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -87,8 +92,8 @@ export default function Quotas() {
 
   const aliasOptions = useMemo(() => {
     const aliases = (modelsData?.items ?? []).map((m) => m.alias);
-    return ['*', ...Array.from(new Set(aliases))].map((a) => ({ value: a, label: a === '*' ? '*（全部模型）' : a }));
-  }, [modelsData]);
+    return ['*', ...Array.from(new Set(aliases))].map((a) => ({ value: a, label: a === '*' ? t('quotas.allModels') : a }));
+  }, [modelsData, t]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['quotas'] });
 
@@ -96,7 +101,7 @@ export default function Quotas() {
     mutationFn: (body: QuotaInput) =>
       editing ? quotaApi.update(editing.id, body) : quotaApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '配额已更新' : '配额已创建');
+      message.success(editing ? t('quotas.updated') : t('quotas.created'));
       setModalOpen(false);
       invalidate();
     },
@@ -106,7 +111,7 @@ export default function Quotas() {
   const deleteMutation = useMutation({
     mutationFn: quotaApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -115,7 +120,7 @@ export default function Quotas() {
   const resetMutation = useMutation({
     mutationFn: quotaApi.reset,
     onSuccess: () => {
-      message.success('已重置，使用量归零');
+      message.success(t('quotas.resetOk'));
       invalidate();
     },
     onError: () => undefined,
@@ -124,7 +129,7 @@ export default function Quotas() {
   const batchMutation = useMutation({
     mutationFn: quotaApi.batch,
     onSuccess: () => {
-      message.success('批量创建完成');
+      message.success(t('quotas.batchDone'));
       setBatchOpen(false);
       setBatchText('');
       invalidate();
@@ -194,7 +199,7 @@ export default function Quotas() {
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('#'));
     if (!lines.length) {
-      setBatchError('请输入至少一行配置');
+      setBatchError(t('quotas.batchErrEmpty'));
       return [];
     }
     const items: QuotaInput[] = [];
@@ -204,20 +209,20 @@ export default function Quotas() {
       const [keyToken, alias, qtype, period, limitStr, over = 'reject'] = parts;
       const keyId = apiKeyIdOf(keyToken);
       if (keyId == null) {
-        errors.push(`第 ${idx + 1} 行：找不到 API Key「${keyToken}」`);
+        errors.push(t('quotas.batchErrKey', { n: idx + 1, key: keyToken ?? '' }));
         return;
       }
       if (!alias || !qtype || !period || !limitStr) {
-        errors.push(`第 ${idx + 1} 行：字段不足（需要 apiKey,modelAlias,type,period,limit）`);
+        errors.push(t('quotas.batchErrFields', { n: idx + 1 }));
         return;
       }
       if ((qtype !== 'requests' && qtype !== 'tokens') || (period !== 'day' && period !== 'week' && period !== 'month')) {
-        errors.push(`第 ${idx + 1} 行：枚举值不合法（type: requests/tokens, period: day/week/month）`);
+        errors.push(t('quotas.batchErrEnum', { n: idx + 1 }));
         return;
       }
       const limit = Number(limitStr);
       if (!Number.isInteger(limit) || limit <= 0) {
-        errors.push(`第 ${idx + 1} 行：limit 必须为正整数`);
+        errors.push(t('quotas.batchErrLimit', { n: idx + 1 }));
         return;
       }
       items.push({
@@ -247,16 +252,16 @@ export default function Quotas() {
 
   return (
     <PageContainer
-      title="配额管理"
-      description="按 API Key 与模型别名配置请求次数 / Token 配额，支持周期自动重置（REQ-012）。"
+      title={t('quotas.title')}
+      description={t('quotas.desc')}
       extra={
         <>
           <Button icon={<RedoOutlined />} onClick={() => invalidate()}>
-            刷新
+            {t('quotas.refresh')}
           </Button>
-          <Button onClick={() => setBatchOpen(true)}>批量创建</Button>
+          <Button onClick={() => setBatchOpen(true)}>{t('quotas.batch')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建配额
+            {t('quotas.add')}
           </Button>
         </>
       }
@@ -270,25 +275,25 @@ export default function Quotas() {
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
           { title: 'API Key', dataIndex: 'api_key_label', width: 130 },
           {
-            title: '模型别名',
+            title: t('quotas.colModel'),
             dataIndex: 'model_alias',
             width: 110,
-            render: (v: string) => (v === '*' ? <Tag color="blue">* 全部模型</Tag> : v),
+            render: (v: string) => (v === '*' ? <Tag color="blue">{t('quotas.allModelsTag')}</Tag> : v),
           },
           {
-            title: '配额类型',
+            title: t('quotas.colType'),
             dataIndex: 'quota_type',
             width: 100,
-            render: (v: QuotaType) => labelOf(QUOTA_TYPE_MAP.labels, v),
+            render: (v: QuotaType) => typeLbl(v),
           },
           {
-            title: '周期',
+            title: t('quotas.colPeriod'),
             dataIndex: 'period',
             width: 80,
-            render: (v: QuotaPeriod) => labelOf(PERIOD_MAP.labels, v),
+            render: (v: QuotaPeriod) => periodLbl(v),
           },
           {
-            title: '使用情况',
+            title: t('quotas.colUsage'),
             key: 'usage',
             width: 220,
             render: (_: unknown, r: Quota) => {
@@ -303,27 +308,27 @@ export default function Quotas() {
                     format={() => `${fmtNumber(r.used)}/${fmtNumber(r.limit)}`}
                   />
                   <Typography.Text type={over ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>
-                    {over ? `已超额 ${fmtNumber(r.used - r.limit)}` : `剩余 ${fmtNumber(Math.max(0, r.limit - r.used))}`}
+                    {over ? t('quotas.overBy', { n: fmtNumber(r.used - r.limit) }) : t('quotas.remaining', { n: fmtNumber(Math.max(0, r.limit - r.used)) })}
                   </Typography.Text>
                 </div>
               );
             },
           },
           {
-            title: '超额策略',
+            title: t('quotas.colOverAction'),
             dataIndex: 'over_action',
             width: 130,
             render: (v: OverAction, r: Quota) =>
               v === 'degrade' ? (
                 <Tag color="orange">
-                  降级至 {r.degrade_alias || '-'}
+                  {t('quotas.degradeTo', { alias: r.degrade_alias || '-' })}
                 </Tag>
               ) : (
-                <Tag color="red">拒绝请求</Tag>
+                <Tag color="red">{t('quotas.reject')}</Tag>
               ),
           },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: Quota) => (
@@ -331,38 +336,38 @@ export default function Quotas() {
             ),
           },
           {
-            title: '重置时间',
+            title: t('quotas.colResetAt'),
             dataIndex: 'reset_at',
             width: 160,
             render: (v: string) => fmtTime(v),
           },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 210,
             fixed: 'right',
             render: (_: unknown, record: Quota) => (
               <Space>
                 <Popconfirm
-                  title="重置配额"
-                  description={`确认将使用量归零？`}
+                  title={t('quotas.resetTitle')}
+                  description={t('quotas.resetConfirm')}
                   onConfirm={() => resetMutation.mutate(record.id)}
                 >
                   <Button size="small" icon={<RedoOutlined />}>
-                    重置
+                    {t('quotas.reset')}
                   </Button>
                 </Popconfirm>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除配额"
-                  description="确认删除该配额规则？"
+                  title={t('quotas.deleteTitle')}
+                  description={t('quotas.deleteConfirm')}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -374,7 +379,7 @@ export default function Quotas() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -384,7 +389,7 @@ export default function Quotas() {
 
       {/* 新建 / 编辑 */}
       <Modal
-        title={editing ? '编辑配额' : '新建配额'}
+        title={editing ? t('quotas.editTitle') : t('quotas.createTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleSave}
@@ -396,55 +401,55 @@ export default function Quotas() {
           <Form.Item
             name="api_key_id"
             label="API Key"
-            rules={[{ required: true, message: '请选择 API Key' }]}
+            rules={[{ required: true, message: t('quotas.keyReq') }]}
           >
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="选择 API Key"
+              placeholder={t('quotas.keyPh')}
               options={(apikeysData?.items ?? []).map((k) => ({
                 value: k.id,
-                label: `${k.name}（${k.key_masked}）`,
+                label: `${k.name} (${k.key_masked})`,
               }))}
             />
           </Form.Item>
           <Form.Item
             name="model_alias"
-            label="模型别名"
-            tooltip="输入 * 表示作用于全部模型"
-            rules={[{ required: true, message: '请输入或选择模型别名' }]}
+            label={t('quotas.colModel')}
+            tooltip={t('quotas.modelTooltip')}
+            rules={[{ required: true, message: t('quotas.modelReq') }]}
           >
-            <AutoComplete options={aliasOptions} placeholder="输入模型别名，或 * 表示全部" filterOption={(v, o) => String(o?.value ?? '').toLowerCase().includes(v.toLowerCase())} />
+            <AutoComplete options={aliasOptions} placeholder={t('quotas.modelPh')} filterOption={(v, o) => String(o?.value ?? '').toLowerCase().includes(v.toLowerCase())} />
           </Form.Item>
           <Space size={16} align="start" wrap>
-            <Form.Item name="quota_type" label="配额类型" rules={[{ required: true }]}>
-              <Select style={{ width: 150 }} options={QUOTA_TYPE_OPTIONS} />
+            <Form.Item name="quota_type" label={t('quotas.typeLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 150 }} options={typeOpts} />
             </Form.Item>
-            <Form.Item name="period" label="周期类型" rules={[{ required: true }]}>
-              <Select style={{ width: 130 }} options={PERIOD_OPTIONS} />
+            <Form.Item name="period" label={t('quotas.periodLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 130 }} options={periodOpts} />
             </Form.Item>
             <Form.Item
               name="limit"
-              label="配额上限"
-              rules={[{ required: true, message: '请输入配额上限' }]}
+              label={t('quotas.limitLabel')}
+              rules={[{ required: true, message: t('quotas.limitReq') }]}
             >
               <InputNumber min={1} precision={0} style={{ width: 160 }} placeholder="1000" />
             </Form.Item>
           </Space>
           <Space size={16} align="start" wrap>
-            <Form.Item name="over_action" label="超额策略" rules={[{ required: true }]}>
-              <Select style={{ width: 180 }} options={OVER_ACTION_OPTIONS} />
+            <Form.Item name="over_action" label={t('quotas.overActionLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 180 }} options={overActionOpts} />
             </Form.Item>
             {overAction === 'degrade' ? (
               <Form.Item
                 name="degrade_alias"
-                label="降级目标模型"
-                rules={[{ required: true, message: '超额降级需指定目标模型' }]}
+                label={t('quotas.degradeLabel')}
+                rules={[{ required: true, message: t('quotas.degradeReq') }]}
               >
-                <AutoComplete options={aliasOptions} style={{ width: 200 }} placeholder="如 gpt-4-mini" />
+                <AutoComplete options={aliasOptions} style={{ width: 200 }} placeholder={t('quotas.degradePh')} />
               </Form.Item>
             ) : null}
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
               <Switch />
             </Form.Item>
           </Space>
@@ -453,7 +458,7 @@ export default function Quotas() {
 
       {/* 批量创建 */}
       <Modal
-        title="批量创建配额"
+        title={t('quotas.batchTitle')}
         open={batchOpen}
         confirmLoading={batchMutation.isPending}
         onOk={doBatch}
@@ -461,13 +466,13 @@ export default function Quotas() {
         width={680}
       >
         <Typography.Paragraph type="secondary">
-          每行一条，逗号分隔：<Typography.Text code>apiKey名称或ID, 模型别名, 配额类型, 周期, 上限[, 超额策略]</Typography.Text>
+          {t('quotas.batchHint')}<Typography.Text code>{t('quotas.batchFormat')}</Typography.Text>
           <br />
-          配额类型：requests / tokens；周期：day / week / month；超额策略：reject（默认）/ degrade。
+          {t('quotas.batchHint2')}
         </Typography.Paragraph>
         <Input.TextArea
           rows={8}
-          placeholder={'例如：\nteam-a, gpt-4, requests, day, 1000\n2, *, tokens, month, 5000000, reject'}
+          placeholder={t('quotas.batchPh')}
           value={batchText}
           onChange={(e) => {
             setBatchText(e.target.value);

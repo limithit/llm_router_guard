@@ -1,0 +1,17 @@
+export default {
+  'outputFilter.title': 'Output Filter',
+  'outputFilter.desc': 'Configure the filtering policy for model output content (REQ-011).',
+  'outputFilter.save': 'Save Configuration',
+  'outputFilter.saveOk': 'Output filter saved, applied via hot reload',
+  'outputFilter.enabled': 'Enable Output Detection',
+  'outputFilter.on': 'Enabled',
+  'outputFilter.off': 'Disabled',
+  'outputFilter.strategy': 'Violation Response Strategy',
+  'outputFilter.strategyReq': 'Please select a violation response strategy',
+  'outputFilter.safeMessage': 'Custom Safe Message Template',
+  'outputFilter.safeMessageReq': 'Please enter the safe message template',
+  'outputFilter.safeMessagePh': 'Sorry, this response contains inappropriate content.',
+  'outputFilter.chunkThreshold': 'Streaming Detection Threshold (chars)',
+  'outputFilter.chunkTooltip': 'Run a detection once streamed output accumulates to this character count',
+  'outputFilter.chunkReq': 'Please enter the streaming detection threshold',
+};

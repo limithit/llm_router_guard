@@ -5,6 +5,7 @@
  */
 import { useMemo } from 'react';
 import { Empty, Typography } from 'antd';
+import { useTranslation } from 'react-i18next';
 
 interface Point {
   label: string;
@@ -21,7 +22,9 @@ interface LineChartProps {
 
 const COLORS = ['#1677ff', '#ff4d4f'];
 
-export function LineChart({ data, seriesName = ['主序列', '次序列'], height = 240 }: LineChartProps) {
+export function LineChart({ data, seriesName, height = 240 }: LineChartProps) {
+  const { t } = useTranslation();
+  const names = seriesName ?? [t('charts.primarySeries'), t('charts.secondarySeries')];
   const view = useMemo(() => {
     if (!data.length) return null;
     const pad = { l: 44, r: 16, t: 16, b: 28 };
@@ -37,7 +40,7 @@ export function LineChart({ data, seriesName = ['主序列', '次序列'], heigh
   }, [data, height]);
 
   if (!view) {
-    return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
+    return <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
   }
 
   const { pad, w, h, niceMax, x, y } = view;
@@ -76,11 +79,11 @@ export function LineChart({ data, seriesName = ['主序列', '次序列'], heigh
       </svg>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 16, fontSize: 12, color: '#666' }}>
         <span>
-          <span style={{ color: COLORS[0] }}>●</span> {seriesName[0]}
+          <span style={{ color: COLORS[0] }}>●</span> {names[0]}
         </span>
         {data.some((d) => d.value2 !== undefined) && (
           <span>
-            <span style={{ color: COLORS[1] }}>●</span> {seriesName[1]}
+            <span style={{ color: COLORS[1] }}>●</span> {names[1]}
           </span>
         )}
       </div>
@@ -97,10 +100,11 @@ interface DonutChartProps {
 const DONUT_COLORS = ['#1677ff', '#f5222d', '#faad14', '#52c41a', '#722ed1', '#13c2c2', '#eb2f96'];
 
 export function DonutChart({ data, height = 220, centerText }: DonutChartProps) {
+  const { t } = useTranslation();
   const total = data.reduce((s, d) => s + d.value, 0);
 
   if (!total || !data.length) {
-    return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
+    return <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
   }
 
   const r = 60;
@@ -139,7 +143,7 @@ export function DonutChart({ data, height = 220, centerText }: DonutChartProps) 
           {total}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#999">
-          {centerText ?? '合计'}
+          {centerText ?? t('charts.total')}
         </text>
       </svg>
       <div style={{ flex: 1, minWidth: 140 }}>

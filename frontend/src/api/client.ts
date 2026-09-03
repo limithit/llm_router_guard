@@ -8,6 +8,7 @@
 import axios, { AxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { message } from 'antd';
 import { useAuthStore } from '../store/auth';
+import i18n from '../i18n';
 import type { ApiEnvelope } from './types';
 
 /** 管理 API Base URL（见 api-contract.md） */
@@ -55,9 +56,9 @@ client.interceptors.response.use(
       }
       // 业务错误：直接 toast（401 类错误静默，交给错误拦截器处理跳转）
       if (body.code !== 40101 && body.code !== 40102 && body.code !== 40103) {
-        message.error(body.message || '请求失败');
+        message.error(body.message || i18n.t('common.requestFailed'));
       }
-      const err = new Error(body.message || '请求失败') as Error & {
+      const err = new Error(body.message || i18n.t('common.requestFailed')) as Error & {
         code?: number;
         httpStatus?: number;
       };
@@ -78,7 +79,7 @@ client.interceptors.response.use(
     if (bizMessage) {
       message.error(bizMessage);
     } else {
-      message.error(error.message || '网络错误，请稍后重试');
+      message.error(error.message || i18n.t('common.networkError'));
     }
     return Promise.reject(error);
   }

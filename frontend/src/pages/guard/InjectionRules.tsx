@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   App,
   Button,
@@ -23,12 +24,11 @@ import PageContainer from '../../components/PageContainer';
 import StatusSwitch from '../../components/StatusSwitch';
 import { injectionApi } from '../../api/endpoints';
 import {
-  ACTION_MAP,
-  ACTION_OPTIONS,
+  ACTION_META,
+  MATCH_MODE_META,
   colorOf,
-  labelOf,
-  MATCH_MODE_MAP,
-  MATCH_MODE_OPTIONS,
+  useDictLabel,
+  useDictOptions,
 } from '../../constants/dicts';
 import { fmtTime } from '../../utils/format';
 import type { InjectionRule, InjectionRuleInput, InjectionRuleTemplate, MatchMode, RuleAction } from '../../api/types';
@@ -42,6 +42,11 @@ interface InjectionFormValues {
 }
 
 export default function InjectionRules() {
+  const { t } = useTranslation();
+  const actionOpts = useDictOptions('action', ACTION_META);
+  const modeOpts = useDictOptions('matchMode', MATCH_MODE_META);
+  const actionLbl = useDictLabel('action');
+  const modeLbl = useDictLabel('matchMode');
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -73,7 +78,7 @@ export default function InjectionRules() {
     mutationFn: (body: InjectionRuleInput) =>
       editing ? injectionApi.update(editing.id, body) : injectionApi.create(body),
     onSuccess: () => {
-      message.success(editing ? '规则已更新' : '规则已创建');
+      message.success(editing ? t('injection.updated') : t('injection.created'));
       setModalOpen(false);
       invalidate();
     },
@@ -83,7 +88,7 @@ export default function InjectionRules() {
   const deleteMutation = useMutation({
     mutationFn: injectionApi.remove,
     onSuccess: () => {
-      message.success('已删除');
+      message.success(t('common.deleteSuccess'));
       invalidate();
     },
     onError: () => undefined,
@@ -93,7 +98,7 @@ export default function InjectionRules() {
     mutationFn: async () => {
       const list = templates ?? [];
       const selected = list.filter((t) => checkedTemplates.includes(t.name));
-      if (!selected.length) throw new Error('未勾选任何模板');
+      if (!selected.length) throw new Error(t('injection.noTemplateChecked'));
       let ok = 0;
       const errors: string[] = [];
       for (const t of selected) {
@@ -115,8 +120,8 @@ export default function InjectionRules() {
     onSuccess: (r) => {
       message.success(
         r.failed.length
-          ? `已创建 ${r.ok} 条，失败 ${r.failed.length} 条：${r.failed.join('、')}`
-          : `已从预置模板创建 ${r.ok} 条规则`
+          ? t('injection.tplCreated', { ok: r.ok, n: r.failed.length, failed: r.failed.join(', ') })
+          : t('injection.tplCreatedAll', { ok: r.ok })
       );
       setTemplateOpen(false);
       setCheckedTemplates([]);
@@ -170,15 +175,15 @@ export default function InjectionRules() {
 
   return (
     <PageContainer
-      title="注入规则管理"
-      description="配置提示词注入 / 越狱攻击检测规则（REQ-010）。"
+      title={t('injection.title')}
+      description={t('injection.desc')}
       extra={
         <>
           <Button icon={<CheckSquareOutlined />} onClick={() => setTemplateOpen(true)}>
-            从预置模板添加
+            {t('injection.fromTemplates')}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建规则
+            {t('injection.add')}
           </Button>
         </>
       }
@@ -186,14 +191,14 @@ export default function InjectionRules() {
       <Space style={{ marginBottom: 12 }}>
         <Input.Search
           allowClear
-          placeholder="按规则名搜索"
+          placeholder={t('injection.searchPh')}
           style={{ width: 240 }}
           onSearch={(v) => {
             setPage(1);
             setKeyword(v);
           }}
         />
-        <Button onClick={() => setKeyword('')}>重置</Button>
+        <Button onClick={() => setKeyword('')}>{t('common.reset')}</Button>
       </Space>
 
       <Table<InjectionRule>
@@ -203,54 +208,54 @@ export default function InjectionRules() {
         scroll={{ x: 860 }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-          { title: '规则名', dataIndex: 'name', width: 160 },
+          { title: t('injection.colName'), dataIndex: 'name', width: 160 },
           {
-            title: '匹配模式',
+            title: t('injection.colMode'),
             dataIndex: 'match_mode',
             width: 110,
-            render: (v: MatchMode) => labelOf(MATCH_MODE_MAP.labels, v),
+            render: (v: MatchMode) => modeLbl(v),
           },
           {
-            title: '正则/关键词',
+            title: t('injection.colPattern'),
             dataIndex: 'pattern',
             ellipsis: true,
             render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
           },
           {
-            title: '动作',
+            title: t('pii.colAction'),
             dataIndex: 'action',
             width: 90,
             render: (v: RuleAction) => (
-              <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+              <Tag color={colorOf(ACTION_META, v)}>{actionLbl(v)}</Tag>
             ),
           },
           {
-            title: '启用',
+            title: t('common.status'),
             dataIndex: 'enabled',
             width: 80,
             render: (_: unknown, record: InjectionRule) => (
               <StatusSwitch checked={record.enabled} onChange={(c) => toggleEnabled(record, c)} />
             ),
           },
-          { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
+          { title: t('common.createdAt'), dataIndex: 'created_at', width: 160, render: (v: string) => fmtTime(v) },
           {
-            title: '操作',
+            title: t('common.action'),
             key: 'action',
             width: 140,
             fixed: 'right',
             render: (_: unknown, record: InjectionRule) => (
               <Space>
                 <Button size="small" onClick={() => openEdit(record)}>
-                  编辑
+                  {t('common.edit')}
                 </Button>
                 <Popconfirm
-                  title="删除规则"
-                  description={`确认删除「${record.name}」？`}
+                  title={t('injection.deleteTitle')}
+                  description={t('injection.deleteConfirm', { name: record.name })}
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteMutation.mutate(record.id)}
                 >
                   <Button size="small" danger>
-                    删除
+                    {t('common.delete')}
                   </Button>
                 </Popconfirm>
               </Space>
@@ -262,7 +267,7 @@ export default function InjectionRules() {
           pageSize,
           total: data?.total ?? 0,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (total) => t('common.total', { total }),
         }}
         onChange={(p) => {
           setPage(p.current ?? 1);
@@ -271,7 +276,7 @@ export default function InjectionRules() {
       />
 
       <Modal
-        title={editing ? `编辑规则：${editing.name}` : '新建注入规则'}
+        title={editing ? t('injection.editTitle', { name: editing.name }) : t('injection.createTitle')}
         open={modalOpen}
         confirmLoading={saveMutation.isPending}
         onOk={handleSave}
@@ -281,26 +286,26 @@ export default function InjectionRules() {
       >
         <Form<InjectionFormValues> form={form} layout="vertical">
           <Space size={16} align="start" wrap>
-            <Form.Item name="name" label="规则名称" rules={[{ required: true, message: '请输入规则名' }]}>
-              <Input placeholder="例如 忽略系统指令" style={{ width: 220 }} />
+            <Form.Item name="name" label={t('injection.nameLabel')} rules={[{ required: true, message: t('injection.nameReq') }]}>
+              <Input placeholder={t('injection.namePh')} style={{ width: 220 }} />
             </Form.Item>
-            <Form.Item name="match_mode" label="匹配模式" rules={[{ required: true }]}>
-              <Select style={{ width: 150 }} options={MATCH_MODE_OPTIONS} />
+            <Form.Item name="match_mode" label={t('injection.modeLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 150 }} options={modeOpts} />
             </Form.Item>
           </Space>
           <Form.Item
             name="pattern"
-            label="检测表达式"
-            tooltip="正则或关键词；正则合法性由后端校验"
-            rules={[{ required: true, message: '请输入检测表达式' }]}
+            label={t('injection.patternLabel')}
+            tooltip={t('injection.patternTooltip')}
+            rules={[{ required: true, message: t('injection.patternReq') }]}
           >
-            <Input placeholder="例如 ignore (all |the )?previous instructions" />
+            <Input placeholder={t('injection.patternPh')} />
           </Form.Item>
           <Space size={16} align="start" wrap>
-            <Form.Item name="action" label="处理动作" rules={[{ required: true }]}>
-              <Select style={{ width: 150 }} options={ACTION_OPTIONS} />
+            <Form.Item name="action" label={t('injection.actionLabel')} rules={[{ required: true }]}>
+              <Select style={{ width: 150 }} options={actionOpts} />
             </Form.Item>
-            <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Form.Item name="enabled" label={t('common.status')} valuePropName="checked">
               <Switch />
             </Form.Item>
           </Space>
@@ -308,7 +313,7 @@ export default function InjectionRules() {
       </Modal>
 
       <Modal
-        title="从预置模板添加注入规则"
+        title={t('injection.templateTitle')}
         open={templateOpen}
         onOk={() => createTemplates.mutate()}
         confirmLoading={createTemplates.isPending}
@@ -316,7 +321,7 @@ export default function InjectionRules() {
         width={680}
       >
         <Typography.Paragraph type="secondary">
-          勾选预置模板后点击确定批量创建（提示词注入 / 越狱攻击常用模式）。
+          {t('injection.tplTip')}
         </Typography.Paragraph>
         <Checkbox
           style={{ marginBottom: 8 }}
@@ -332,7 +337,7 @@ export default function InjectionRules() {
             setCheckedTemplates(e.target.checked ? (templates ?? []).map((t) => t.name) : []);
           }}
         >
-          全选
+          {t('injection.selectAll')}
         </Checkbox>
         <Table<InjectionRuleTemplate>
           rowKey="name"
@@ -345,25 +350,25 @@ export default function InjectionRules() {
             onChange: (keys) => setCheckedTemplates(keys.map(String)),
           }}
           columns={[
-            { title: '规则名', dataIndex: 'name', width: 160 },
+            { title: t('injection.colName'), dataIndex: 'name', width: 160 },
             {
-              title: '匹配模式',
+              title: t('injection.colMode'),
               dataIndex: 'match_mode',
               width: 110,
-              render: (v: MatchMode) => labelOf(MATCH_MODE_MAP.labels, v),
+              render: (v: MatchMode) => modeLbl(v),
             },
             {
-              title: '表达式',
+              title: t('injection.tplColPattern'),
               dataIndex: 'pattern',
               ellipsis: true,
               render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
             },
             {
-              title: '动作',
+              title: t('pii.colAction'),
               dataIndex: 'action',
               width: 90,
               render: (v: RuleAction) => (
-                <Tag color={colorOf(ACTION_MAP.colors, v)}>{labelOf(ACTION_MAP.labels, v)}</Tag>
+                <Tag color={colorOf(ACTION_META, v)}>{actionLbl(v)}</Tag>
               ),
             },
           ]}

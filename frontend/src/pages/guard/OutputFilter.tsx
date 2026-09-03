@@ -2,10 +2,11 @@
 // 是否启用输出检测 / 违规响应策略 / 自定义安全提示语模板 / 流式检测阈值
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { App, Button, Card, Form, Input, InputNumber, Select, Switch } from 'antd';
 import PageContainer from '../../components/PageContainer';
 import { outputApi } from '../../api/endpoints';
-import { VIOLATION_STRATEGY_OPTIONS } from '../../constants/dicts';
+import { VIOLATION_STRATEGY_META, useDictOptions } from '../../constants/dicts';
 import type { ViolationStrategy } from '../../api/types';
 
 interface OutputFormValues {
@@ -16,6 +17,8 @@ interface OutputFormValues {
 }
 
 export default function OutputFilter() {
+  const { t } = useTranslation();
+  const strategyOpts = useDictOptions('violationStrategy', VIOLATION_STRATEGY_META);
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<OutputFormValues>();
@@ -44,7 +47,7 @@ export default function OutputFilter() {
         stream_chunk_threshold: v.stream_chunk_threshold,
       }),
     onSuccess: () => {
-      message.success('输出过滤配置已保存，热加载生效');
+      message.success(t('outputFilter.saveOk'));
       queryClient.invalidateQueries({ queryKey: ['guard-output'] });
     },
     onError: () => undefined,
@@ -52,11 +55,11 @@ export default function OutputFilter() {
 
   return (
     <PageContainer
-      title="输出过滤配置"
-      description="配置模型输出内容的过滤策略（REQ-011）。"
+      title={t('outputFilter.title')}
+      description={t('outputFilter.desc')}
       extra={
         <Button type="primary" loading={saveMutation.isPending} onClick={() => form.submit()}>
-          保存配置
+          {t('outputFilter.save')}
         </Button>
       }
     >
@@ -66,28 +69,28 @@ export default function OutputFilter() {
           layout="vertical"
           onFinish={(v) => saveMutation.mutate(v)}
         >
-          <Form.Item name="enabled" label="启用输出检测" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          <Form.Item name="enabled" label={t('outputFilter.enabled')} valuePropName="checked">
+            <Switch checkedChildren={t('outputFilter.on')} unCheckedChildren={t('outputFilter.off')} />
           </Form.Item>
           <Form.Item
             name="violation_strategy"
-            label="违规响应策略"
-            rules={[{ required: true, message: '请选择违规响应策略' }]}
+            label={t('outputFilter.strategy')}
+            rules={[{ required: true, message: t('outputFilter.strategyReq') }]}
           >
-            <Select style={{ width: 300 }} options={VIOLATION_STRATEGY_OPTIONS} />
+            <Select style={{ width: 300 }} options={strategyOpts} />
           </Form.Item>
           <Form.Item
             name="safe_message"
-            label="自定义安全提示语模板"
-            rules={[{ required: true, message: '请输入安全提示语模板' }]}
+            label={t('outputFilter.safeMessage')}
+            rules={[{ required: true, message: t('outputFilter.safeMessageReq') }]}
           >
-            <Input.TextArea rows={3} placeholder="抱歉，该回答包含不当内容。" />
+            <Input.TextArea rows={3} placeholder={t('outputFilter.safeMessagePh')} />
           </Form.Item>
           <Form.Item
             name="stream_chunk_threshold"
-            label="流式检测阈值（字符）"
-            tooltip="流式输出累积达到该字符数时进行一次检测"
-            rules={[{ required: true, message: '请输入流式检测阈值' }]}
+            label={t('outputFilter.chunkThreshold')}
+            tooltip={t('outputFilter.chunkTooltip')}
+            rules={[{ required: true, message: t('outputFilter.chunkReq') }]}
           >
             <InputNumber min={16} max={65536} precision={0} style={{ width: 200 }} />
           </Form.Item>

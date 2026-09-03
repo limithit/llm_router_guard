@@ -2,15 +2,19 @@
 // 今日请求指标卡片 + 近 7 天趋势图 + 模型排行 + 拦截类别分布 + 上游健康 + 配额使用率 + 系统状态
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Card, Col, Progress, Row, Statistic, Table, Tag, Typography } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { dashboardApi } from '../api/endpoints';
 import { DonutChart, LineChart } from '../components/Charts';
 import { fmtDuration, fmtNumber } from '../utils/format';
-import { CATEGORY_MAP, colorOf, labelOf, PROTOCOL_MAP } from '../constants/dicts';
+import { KEYWORD_CATEGORY_META, PROTOCOL_META, useDictLabel } from '../constants/dicts';
 import { useNavigate } from 'react-router-dom';
 import type { UpstreamHealth } from '../api/types';
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
+  const catLbl = useDictLabel('keywordCategory');
+  const protoLbl = useDictLabel('protocol');
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: dashboardApi.get,
@@ -26,13 +30,13 @@ export default function Dashboard() {
       <Row gutter={[12, 12]}>
         <Col xs={12} sm={8} md={4}>
           <Card size="small">
-            <Statistic title="今日请求总数" value={fmtNumber(today?.calls)} loading={isLoading} />
+            <Statistic title={t('dashboard.totalCalls')} value={fmtNumber(today?.calls)} loading={isLoading} />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card size="small">
             <Statistic
-              title="成功数"
+              title={t('dashboard.successCount')}
               value={fmtNumber(today?.success)}
               valueStyle={{ color: '#52c41a' }}
               loading={isLoading}
@@ -42,7 +46,7 @@ export default function Dashboard() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small">
             <Statistic
-              title="拦截数"
+              title={t('dashboard.blockedCount')}
               value={fmtNumber(today?.blocked)}
               valueStyle={{ color: '#ff4d4f' }}
               loading={isLoading}
@@ -52,7 +56,7 @@ export default function Dashboard() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small">
             <Statistic
-              title="错误数"
+              title={t('dashboard.errorCount')}
               value={fmtNumber(today?.errors)}
               valueStyle={{ color: '#faad14' }}
               loading={isLoading}
@@ -62,7 +66,7 @@ export default function Dashboard() {
         <Col xs={12} sm={8} md={4}>
           <Card size="small">
             <Statistic
-              title="平均延迟"
+              title={t('dashboard.avgLatency')}
               value={today?.avg_latency_ms}
               suffix="ms"
               loading={isLoading}
@@ -76,7 +80,7 @@ export default function Dashboard() {
         <Col xs={24} lg={15}>
           <Card
             size="small"
-            title="近 7 天调用趋势"
+            title={t('dashboard.trend7d')}
             loading={isLoading}
           >
             <LineChart
@@ -85,18 +89,18 @@ export default function Dashboard() {
                 value: d.calls,
                 value2: d.blocked,
               }))}
-              seriesName={['调用数', '拦截数']}
+              seriesName={[t('dashboard.trendCalls'), t('dashboard.trendBlocked')]}
             />
           </Card>
         </Col>
         <Col xs={24} lg={9}>
-          <Card size="small" title="拦截类别分布" loading={isLoading}>
+          <Card size="small" title={t('dashboard.blockCategories')} loading={isLoading}>
             <DonutChart
               data={(data?.block_categories ?? []).map((c) => ({
-                label: labelOf(CATEGORY_MAP.labels, c.category),
+                label: catLbl(c.category),
                 value: c.count,
               }))}
-              centerText="拦截总数"
+              centerText={t('dashboard.blockTotal')}
             />
           </Card>
         </Col>
@@ -105,9 +109,9 @@ export default function Dashboard() {
       <Row gutter={[12, 12]}>
         {/* 模型调用量排行 */}
         <Col xs={24} lg={8}>
-          <Card size="small" title="模型调用量排行" loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
+          <Card size="small" title={t('dashboard.topModels')} loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
             {(data?.top_models ?? []).length === 0 ? (
-              <Typography.Text type="secondary">暂无数据</Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.noData')}</Typography.Text>
             ) : (
               (data?.top_models ?? []).map((m, i) => {
                 const max = Math.max(1, ...(data?.top_models ?? []).map((x) => x.calls));
@@ -141,30 +145,30 @@ export default function Dashboard() {
 
         {/* 上游健康状态 */}
         <Col xs={24} lg={8}>
-          <Card size="small" title="上游健康状态" loading={isLoading}>
+          <Card size="small" title={t('dashboard.upstreamHealth')} loading={isLoading}>
             <Table<UpstreamHealth>
               rowKey="provider"
               size="small"
               pagination={false}
               dataSource={data?.upstream_health ?? []}
-              locale={{ emptyText: '暂无上游' }}
+              locale={{ emptyText: t('dashboard.noUpstreams') }}
               columns={[
-                { title: '供应商', dataIndex: 'provider' },
+                { title: t('dashboard.colProvider'), dataIndex: 'provider' },
                 {
-                  title: '协议',
+                  title: t('dashboard.colProtocol'),
                   dataIndex: 'protocol',
                   width: 150,
-                  render: (v: string) => labelOf(PROTOCOL_MAP.labels, v),
+                  render: (v: string) => protoLbl(v),
                 },
                 {
-                  title: '状态',
+                  title: t('dashboard.colStatus'),
                   dataIndex: 'healthy',
                   width: 90,
                   render: (v: boolean) =>
-                    v ? <Tag color="success">健康</Tag> : <Tag color="error">异常</Tag>,
+                    v ? <Tag color="success">{t('common.enabled')}</Tag> : <Tag color="error">{t('dashboard.abnormal')}</Tag>,
                 },
                 {
-                  title: '连续失败',
+                  title: t('dashboard.colFailCount'),
                   dataIndex: 'fail_count',
                   width: 90,
                   render: (v: number) => v || '-',
@@ -176,9 +180,9 @@ export default function Dashboard() {
 
         {/* 配额使用率总览 */}
         <Col xs={24} lg={8}>
-          <Card size="small" title="配额使用率总览" loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
+          <Card size="small" title={t('dashboard.quotaUsage')} loading={isLoading} styles={{ body: { paddingTop: 8 } }}>
             {(data?.quota_usage ?? []).length === 0 ? (
-              <Typography.Text type="secondary">暂无配额数据</Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.noQuotaData')}</Typography.Text>
             ) : (
               (data?.quota_usage ?? []).map((q) => {
                 const pct = q.limit ? Math.min(200, Math.round((q.used / q.limit) * 100)) : 0;
@@ -198,7 +202,7 @@ export default function Dashboard() {
                       </Typography.Text>
                       <span style={{ color: over ? '#ff4d4f' : undefined }}>
                         {fmtNumber(q.used)}/{fmtNumber(q.limit)}
-                        {over ? ' 超额' : ''}
+                        {over ? t('dashboard.overused') : ''}
                       </span>
                     </div>
                     <Progress
@@ -215,27 +219,27 @@ export default function Dashboard() {
       </Row>
 
       {/* 系统运行状态 */}
-      <Card size="small" title="系统运行状态" loading={isLoading}>
+      <Card size="small" title={t('dashboard.systemStatus')} loading={isLoading}>
         {data && (
           <Row gutter={[16, 8]}>
             <Col span={12} md={4}>
-              <Typography.Text type="secondary">版本 </Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.version')}</Typography.Text>
               <Tag color="blue">{system?.version}</Tag>
             </Col>
             <Col span={12} md={4}>
-              <Typography.Text type="secondary">运行时长 </Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.uptime')}</Typography.Text>
               {fmtDuration(system?.uptime_seconds)}
             </Col>
             <Col span={12} md={4}>
-              <Typography.Text type="secondary">配置加载 </Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.configLoad')}</Typography.Text>
               {system?.config_status === 'ok' ? (
-                <Tag color="success">正常</Tag>
+                <Tag color="success">{t('dashboard.configOk')}</Tag>
               ) : (
-                <Tag color="error">{system?.config_status ?? '未知'}</Tag>
+                <Tag color="error">{system?.config_status ?? t('common.unknown')}</Tag>
               )}
             </Col>
             <Col span={12} md={4}>
-              <Typography.Text type="secondary">Go 版本 </Typography.Text>
+              <Typography.Text type="secondary">{t('dashboard.goVersion')}</Typography.Text>
               {system?.go_version ?? '-'}
             </Col>
             {today && today.blocked > 0 ? (
@@ -243,10 +247,10 @@ export default function Dashboard() {
                 <Alert
                   type={today.blocked > today.errors ? 'warning' : 'info'}
                   showIcon
-                  message={`今日拦截 ${fmtNumber(today.blocked)} 次，错误 ${fmtNumber(today.errors)} 次`}
+                  message={t('dashboard.todayIntercepted', { blocked: fmtNumber(today.blocked), errors: fmtNumber(today.errors) })}
                   action={
                     <Typography.Link onClick={() => navigate('/audit/calls')}>
-                      查看日志
+                      {t('dashboard.viewLogs')}
                     </Typography.Link>
                   }
                 />
