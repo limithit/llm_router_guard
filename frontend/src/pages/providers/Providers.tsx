@@ -128,8 +128,9 @@ export default function Providers() {
         models: selectedModels,
         enabled: true,
       });
+      const addedNote = res.added ? `，追加 ${res.added} 个上游到已有别名` : '';
       const skippedNote = res.skipped ? `，跳过 ${res.skipped} 个已存在` : '';
-      message.success(`已导入 ${res.created} 个模型别名${skippedNote}`);
+      message.success(`新建 ${res.created} 个别名${addedNote}${skippedNote}`);
       setImportModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ['models'] });
     } catch {
@@ -362,7 +363,7 @@ export default function Providers() {
         destroyOnClose
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          勾选要启用的模型，将作为「模型别名」导入（别名 = 上游模型名，单上游指向本供应商）。已存在的别名会自动跳过。
+          勾选要启用的模型：新别名以「上游模型名」命名并指向本供应商；若别名已存在，则把本供应商追加为额外上游（同供应商+同模型去重），这样一个别名可挂多个账号/平台，供 SLB 加权轮询与故障转移。
         </Typography.Paragraph>
         <Table
           size="small"

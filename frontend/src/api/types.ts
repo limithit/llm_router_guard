@@ -194,6 +194,7 @@ export interface ProviderImportInput {
 
 export interface ProviderImportResult {
   created: number;
+  added: number;
   skipped: number;
   skipped_names: string[];
 }

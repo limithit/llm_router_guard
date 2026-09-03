@@ -249,27 +249,44 @@ func (s *Server) importProviderModels(c *gin.Context) {
 		s.fail(c, 400, 40001, "请至少选择一个模型")
 		return
 	}
-	created, skippedNames := 0, []string{}
+	created, added, skippedNames := 0, 0, []string{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, raw := range req.Models {
 			name := strings.TrimSpace(raw)
 			if name == "" {
 				continue
 			}
-			var exist model.ModelAlias
-			if err := tx.Where("alias = ?", name).First(&exist).Error; err == nil {
-				skippedNames = append(skippedNames, name)
-				continue
-			}
-			a := model.ModelAlias{Alias: name, Enabled: req.Enabled}
-			if err := tx.Create(&a).Error; err != nil {
+			var a model.ModelAlias
+			if err := tx.Where("alias = ?", name).First(&a).Error; err == nil {
+				// 别名已存在 → 把本供应商作为额外上游加入（同供应商+同上游模型去重）。
+				// 这样同一模型名可挂多个账号/平台，SLB 在多上游间轮询与故障转移。
+				var dup model.AliasUpstream
+				if derr := tx.Where("alias_id = ? AND provider_id = ? AND upstream_model = ?",
+					a.ID, p.ID, name).First(&dup).Error; derr == nil {
+					skippedNames = append(skippedNames, name)
+					continue
+				} else if derr != gorm.ErrRecordNotFound {
+					return derr
+				}
+				if err := tx.Create(&model.AliasUpstream{AliasID: a.ID, ProviderID: p.ID,
+					UpstreamModel: name, Weight: 1}).Error; err != nil {
+					return err
+				}
+				added++
+			} else if err == gorm.ErrRecordNotFound {
+				// 别名不存在 → 新建 + 单上游指向本供应商
+				a = model.ModelAlias{Alias: name, Enabled: req.Enabled}
+				if err := tx.Create(&a).Error; err != nil {
+					return err
+				}
+				if err := tx.Create(&model.AliasUpstream{AliasID: a.ID, ProviderID: p.ID,
+					UpstreamModel: name, Weight: 1}).Error; err != nil {
+					return err
+				}
+				created++
+			} else {
 				return err
 			}
-			if err := tx.Create(&model.AliasUpstream{AliasID: a.ID, ProviderID: p.ID,
-				UpstreamModel: name, Weight: 1}).Error; err != nil {
-				return err
-			}
-			created++
 		}
 		return nil
 	})
@@ -278,9 +295,10 @@ func (s *Server) importProviderModels(c *gin.Context) {
 		return
 	}
 	s.recordOp(c, "import", "model_alias", p.Name, nil,
-		gin.H{"created": created, "skipped": len(skippedNames)})
+		gin.H{"created": created, "added": added, "skipped": len(skippedNames)})
 	s.mgr.Bump()
-	s.ok(c, gin.H{"created": created, "skipped": len(skippedNames), "skipped_names": skippedNames})
+	s.ok(c, gin.H{"created": created, "added": added,
+		"skipped": len(skippedNames), "skipped_names": skippedNames})
 }
 
 // errSnippet 从错误响应中提取 OpenAI/Anthropic 风格的 error.message，否则取前 120 字。
