@@ -499,33 +499,13 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 
 			// 阈值化输出护栏（REQ-011 ④ 流式检测阈值）
 			if snap.General.GuardEnabled && snap.Output.Enabled && acc.Len() >= nextCheck {
-				vd := guard.CheckOutput(snap, acc.String())
-				if vd.Blocked {
-					ap.category = "output"
-					ap.reason = vd.BlockReason
-					switch snap.Output.ViolationStrategy {
-					case "block":
-						_ = sw.Fail("output blocked by content policy: " + vd.BlockReason)
-						ap.status = "blocked"
-						s.mx.RecordError(reqID, vd.BlockReason)
-						return frFatal
-					case "replace":
-						msg := snap.Output.SafeMessage
-						if msg == "" {
-							msg = "抱歉，该回答包含不当内容。"
-						}
-						_ = sw.Delta("\n" + msg)
-						ap.status = "blocked"
-						ap.output = guard.MaskForLog(snap, msg)
-						stopped = true
-					default: // log
-						if len(vd.Findings) > 0 {
-							ap.findings = appendFindings(ap.findings, vd.Findings)
-						}
-					}
-					if stopped {
-						break
-					}
+				stop, fatal := s.runStreamGuardCheck(snap, sw, reqID, ap, acc.String())
+				if fatal {
+					return frFatal
+				}
+				if stop {
+					stopped = true
+					break
 				}
 				nextCheck += threshold
 			}
@@ -539,6 +519,14 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		ap.errMsg = err.Error()
 		ap.status = "error"
 		return frFatal
+	}
+
+	// 流结束兜底检测：短输出（不足阈值）或最后一个未达阈值的尾部此前未被检测，
+	// 必须在此对完整累积文本补一次输出护栏，避免短回答（如“Google”）被放行。
+	if !stopped && snap.General.GuardEnabled && snap.Output.Enabled && acc.Len() > 0 {
+		if _, fatal := s.runStreamGuardCheck(snap, sw, reqID, ap, acc.String()); fatal {
+			return frFatal
+		}
 	}
 
 	usage = estimateUsage(usage, ap.input, acc.String())
@@ -555,6 +543,42 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		s.qm.Consume(snap, ap.keyID, ap.alias, usage.Prompt, usage.Completion)
 	}
 	return frDone
+}
+
+// runStreamGuardCheck 对流式累积输出做一次输出护栏检测，并按违规策略处理。
+// 返回 stop（replace 后应终止循环）与 fatal（block 后调用方应立即返回 frFatal）。
+func (s *Server) runStreamGuardCheck(snap *runtime.Snapshot, sw *adapter.SSEWriter,
+	reqID string, ap *auditParams, text string) (stop, fatal bool) {
+	vd := guard.CheckOutput(snap, text)
+	if !vd.Blocked {
+		if len(vd.Findings) > 0 {
+			ap.findings = appendFindings(ap.findings, vd.Findings)
+		}
+		return false, false
+	}
+	ap.category = "output"
+	ap.reason = vd.BlockReason
+	switch snap.Output.ViolationStrategy {
+	case "block":
+		_ = sw.Fail("output blocked by content policy: " + vd.BlockReason)
+		ap.status = "blocked"
+		s.mx.RecordError(reqID, vd.BlockReason)
+		return true, true
+	case "log":
+		if len(vd.Findings) > 0 {
+			ap.findings = appendFindings(ap.findings, vd.Findings)
+		}
+		return false, false
+	default: // replace
+		msg := snap.Output.SafeMessage
+		if msg == "" {
+			msg = "抱歉，该回答包含不当内容。"
+		}
+		_ = sw.Delta("\n" + msg)
+		ap.status = "blocked"
+		ap.output = guard.MaskForLog(snap, msg)
+		return true, false
+	}
 }
 
 func estimateUsage(u adapter.Usage, input, output string) adapter.Usage {

@@ -1,8 +1,8 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-02（第六轮存档：API Key Token 用量统计看板）
+最后更新：2026-09-02（第六轮：API Key Token 用量统计看板 + 流式输出护栏短输出兜底修复）
 
-## 📝 本轮迭代变更（第六轮，2026-09-02）
+##  本轮迭代变更（第六轮）
 
 ### 新增：API Key Token 用量统计看板
 - **后端**（`internal/admin/tokenstats.go`，新文件）：
@@ -17,7 +17,19 @@
   - 历史趋势折线（Prompt vs Completion）+ 模型分布环形图 + Key 排行表（可排序 + 占比进度条）+ CSV 导出
   - 路由 `/usage/token`，侧栏一级菜单「Token 用量」
 - **契约**：docs/api-contract.md 新增 8.3 Token 用量统计章节
-- **测试**：`tokenstats_test.go` 8 个用例全绿（聚合/Key过滤/模型过滤/历史趋势/小时粒度/默认30天窗口/已删除Key历史/CSV导出）
+- **测试**：`tokenstats_test.go` 8 个用例全绿
+
+### 修复：流式输出护栏短输出漏检
+- **问题**：创建关键词 "Google" 后，模型输出未被拦截。
+- **根因**：`internal/gateway/forwardStream` 仅在累积输出长度 `>= threshold`（默认 256）时检测一次；短输出（< 256 字节）在流结束前永远到不了阈值，且循环结束后没有兜底检测，导致被完全放行。
+- **修复**：
+  - 将检测/策略处理逻辑抽取为 `runStreamGuardCheck`（block/replace/log 三策略统一处理）。
+  - 循环结束后对完整累积文本执行一次**兜底输出护栏检测**；短输出也能被正常 block/replace/log。
+  - 保持阈值化检测作为“尽早介入”优化，避免漏检。
+- **测试**：新增 `internal/gateway/gateway_test.go`，覆盖：
+  - 短输出（< 256）命中敏感词被 replace 拦截
+  - 长输出超过阈值被 block 拦截
+  - 正常短输出不误拦截
 
 ### 踩坑记录
 - **GORM Scan 不展开嵌入结构体**：聚合结果 Scan 进 `struct{ APIKeyID uint; tokenAgg }`（tokenAgg 为匿名嵌入）时数值列全部为零。GORM 的 `Scan` 对匿名嵌入字段不做字段提升，必须展平所有列字段。
@@ -25,8 +37,7 @@
 ## 📊 当前状态总览
 
 ### 编译状态
-- ✅ **后端** `go build ./...` — 零错误（33 个 .go 源文件）
-- ✅ **前端** `tsc --noEmit` — 零错误
+- ✅ **后端** `go test ./...` — 全绿（guard/slb/quota/admin/gateway）
 - ✅ **前端** `vite build` — 零错误（dist/assets/index-D1hCx5BN.js 1,600 KB / gzip 503 KB）
 
 ### 测试状态
@@ -37,12 +48,13 @@
   | `internal/slb` | 22 | slb_test.go (502行) | 加权选择(SWRR)、权重分布统计、熔断器开/半开/恢复、故障转移全循环、PickIgnoringCircuit、HealthList、并发安全 |
   | `internal/quota` | 32 | quota_test.go (590行) | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 |
   | `internal/admin` | 13 | providers_test.go (111行) + tokenstats_test.go (340行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV） |
-  | **合计** | **99** | **5 文件** | — |
+  | `internal/gateway` | 3 | gateway_test.go (160行) | 流式输出护栏：短输出兜底检测 / 阈值检测 / 正常输出不误拦截 |
+  | **合计** | **102** | **6 文件** | — |
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：`b0b9a2a feat: toast when provider test succeeds without model list`
-- 工作区：干净（无未提交变更）
+- 最新提交：待提交（流式输出护栏短输出兜底修复）
+- 工作区：有变更（未提交）
 
 ## 📝 已完成迭代历史
 
