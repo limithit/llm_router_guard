@@ -36,8 +36,8 @@ cd ..
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `PORT` | `8080` | 监听端口 |
-| `DB_TYPE` | `sqlite` | 数据库类型：`sqlite` / `postgres` / `mysql` |
-| `DB_DSN` | `gateway.db` | 连接串；sqlite 为文件路径，其余遵循标准 DSN |
+| `DB_TYPE` | `sqlite` | 数据库类型：`sqlite` / `postgres` / `mysql`（切换见[数据库切换](#数据库切换sqlite--mysql--postgresql)） |
+| `DB_DSN` | `gateway.db` | 连接串；sqlite 为文件路径，postgres / mysql 为标准 DSN（示例见下） |
 | `JWT_SECRET` | `change-me-jwt-secret` | JWT 签名密钥 |
 | `MASTER_KEY` | `llm-router-guard-master-key` | API Key 加密主密钥 |
 | `ADMIN_USER` | `admin` | 首启管理员用户名 |
@@ -157,6 +157,64 @@ volumes:
 ```
 
 详细 Dockerfile 请参考项目根目录下的 `Dockerfile` 和 `docker-compose.yml`。
+
+### 数据库切换（SQLite / MySQL / PostgreSQL）
+
+通过两个环境变量切换；首次启动 `AutoMigrate` 自动建表，无需手动执行 SQL。
+
+| 变量 | 说明 |
+|------|------|
+| `DB_TYPE` | `sqlite`（默认）/ `postgres` / `mysql` |
+| `DB_DSN` | 连接串。sqlite 为文件路径；postgres / mysql 为标准 DSN |
+
+**SQLite（默认，零配置）**
+```bash
+DB_TYPE=sqlite DB_DSN=gateway.db ./llm-router-guard
+# 也可用绝对路径放到数据卷：DB_DSN=/app/data/gateway.db
+```
+WAL 模式运行，写连接数为 1（读仍并发）；适合单机 / 小规模。
+
+**PostgreSQL**
+```bash
+DB_TYPE=postgres \
+DB_DSN="postgres://user:pass@host:5432/gateway?sslmode=disable" \
+./llm-router-guard
+# 或 key=value 形式：
+DB_DSN="host=pg-host user=gateway password=secret dbname=gateway port=5432 sslmode=disable"
+```
+
+**MySQL**
+```bash
+DB_TYPE=mysql \
+DB_DSN="gateway:secret@tcp(mysql-host:3306)/gateway" \
+./llm-router-guard
+```
+> 网关会自动补 `charset=utf8mb4&parseTime=True&loc=Local`（若 DSN 未含），保证时间字段与中文正确；MySQL 库建议 `utf8mb4`。
+
+**Docker Compose + PostgreSQL 示例**
+```yaml
+services:
+  gateway:
+    build: { context: ., dockerfile: Dockerfile }
+    ports: ["8080:8080"]
+    environment:
+      - DB_TYPE=postgres
+      - DB_DSN=postgres://gateway:secret@db:5432/gateway?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET:-replace-with-random-secret}
+      - MASTER_KEY=${MASTER_KEY:-replace-with-master-key}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+    depends_on: [db]
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=gateway
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=gateway
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+volumes:
+  pg-data:
+```
+> 切库只改这两个变量，业务表（供应商 / 模型 / 配额 / 审计等）随 `AutoMigrate` 自动建到新库。**库之间不做数据迁移**——切到新 `DB_DSN` 即一个空库，历史数据需自行导出/导入。
 
 ## License
 
