@@ -100,7 +100,11 @@ func TestTokenStats_Aggregation(t *testing.T) {
 	keyB := s.seedAPIKey(t, "team-b")
 	keyC := s.seedAPIKey(t, "team-c-zero-usage") // 零用量 Key，也应出现在 by_key
 
-	base := time.Now().Add(-2 * 24 * time.Hour)
+	// base 固定在「2 天前的本地 09:00」：4 条记录最大偏移 +3h（→12:00）不会跨过本地午夜。
+	// 隐患：原写法 now-2d 直用当前时刻，21:00 后运行测试时 base+3h 落入次日，
+	// 日分桶裂成 2 个 → trend len=2 断言失败（2026-09-04 新环境实测踩坑）。
+	nb := time.Now().AddDate(0, 0, -2)
+	base := time.Date(nb.Year(), nb.Month(), nb.Day(), 9, 0, 0, 0, nb.Location())
 	// key-a: gpt-4o 两条（100+200, 50+50），claude 一条（10+10）
 	s.seedCallLog(t, keyA, "team-a", "gpt-4o", base, 100, 200)
 	s.seedCallLog(t, keyA, "team-a", "gpt-4o", base.Add(time.Hour), 50, 50)
@@ -216,7 +220,10 @@ func TestTokenStats_HistoricalTrend(t *testing.T) {
 	now := time.Now()
 	// 3 天各一条，验证按日分桶的历史序列
 	for i := 3; i >= 1; i-- {
-		day := now.AddDate(0, 0, -i).Truncate(24 * time.Hour).Add(12 * time.Hour)
+		// 用本地年月日重建「正午 12:00」，不用 Truncate(24h)（按 UTC 对齐，
+		// 东八区外正值下午时区会把记录挪到次日，两个桶塌成同一天）
+		d := now.AddDate(0, 0, -i)
+		day := time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, d.Location())
 		s.seedCallLog(t, keyA, "team-a", "gpt-4o", day, i*10, i*5)
 	}
 
