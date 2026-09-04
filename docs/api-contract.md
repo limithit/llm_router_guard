@@ -303,6 +303,25 @@ ApiKey 对象：`{ "id":1,"name":"team-a","key_masked":"sk-ab****yz","remark":""
 
 ## 10. 系统运维
 
+### 10.0 Prometheus 指标出口（P2 #6）
+`GET /metrics`（无 JWT 鉴权，建议监控网段限制）→ `text/plain; version=0.0.4`。
+指标前缀 `gw_`：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `gw_uptime_seconds` | gauge | 进程运行秒数 |
+| `gw_active_connections` | gauge | 当前活跃连接数 |
+| `gw_requests_per_second` | gauge | 全模型 QPS（60s 窗口） |
+| `gw_model_requests_per_second{model}` | gauge | 模型维度 QPS |
+| `gw_model_errors_1m{model}` | gauge | 模型维度最近 1 分钟错误数 |
+| `gw_upstream_healthy{provider,protocol}` | gauge | 上游可达（1=健康，0=熔断打开/不可达；含 Redis 共享状态） |
+| `gw_upstream_consecutive_failures{provider,protocol}` | gauge | 熔断连续失败计数 |
+| `go_*` | — | Go runtime（heap/gc/goroutines/mutex 等） |
+
+### 10.0a 实时调用审计流（P2 #5）
+`GET /api/admin/v1/audit/ws?token=<JWT>`（WebSocket 升级；浏览器无法自定义 Authorization 头，token 走查询串，鉴权失败在升级前 401）。
+服务端对每条调用审计落库即推送一帧 JSON 文本（字段 = model.CallLog JSON：`request_id / created_at / api_key_label / protocol / model_alias / upstream_provider / upstream_model / prompt_tokens / completion_tokens / latency_ms / status / blocked / block_category / block_reason`）。服务端 30s ping 保活；慢消费者丢弃计数达阈值（512）主动以 1013 关闭，客户端重连即恢复。
+
 ### 10.1 状态监控 (REQ-018)
 `GET /status` →
 ```json

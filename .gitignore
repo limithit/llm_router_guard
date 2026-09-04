@@ -5,6 +5,7 @@ bin/
 # Data files
 gateway.db*
 data/
+.env
 
 # Frontend
 frontend/dist/

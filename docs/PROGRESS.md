@@ -1,6 +1,57 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-04（第十二轮：前端路由懒加载 + vendor 分包 + 多节点部署文档 + 新环境连库实测）
+最后更新：2026-09-05（第十三轮：P2 全清——Prometheus /metrics + WebSocket 实时审计 + echarts + .env 模板）
+
+##  本轮迭代变更（第十三轮）
+
+### 新增：Prometheus 指标出口（待办 P2 #6 ✅）
+- **新文件** `internal/metrics/prom.go`：手写 Prometheus 文本格式 v0.0.4（零第三方依赖，
+  Prometheus/VictoriaMetrics 直接可抓）；`GET /metrics`（无 JWT，建议监控网段限制）。
+- **指标**：`gw_uptime_seconds` / `gw_active_connections` / `gw_requests_per_second` /
+  `gw_model_requests_per_second{model}` / `gw_model_errors_1m{model}` /
+  `gw_upstream_healthy{provider,protocol}`（复用 slb.HealthList 语义，含 Redis 共享打开状态）/
+  `gw_upstream_consecutive_failures{...}` + `go_*` runtime 指标（runtime/metrics 一次快照）。
+- **admin.Server 实现 `PromCollector`** 接口抓取瞬间组装上游健康行；抓取互斥防并发放大。
+- **踩坑**：label 值转义不能对已 `promEsc` 的串再用 `%q`（二次转义 `\"`→`\\"`）——改为手工拼引号。
+- **单测** `prom_test.go`：转义/格式化/渲染含收集器与无收集器两条路径。
+
+### 新增：WebSocket 实时审计推送（待办 P2 #5 ✅）
+- **后端**（零新依赖，手写 RFC6455 服务端推送子集）：
+  - `internal/audit/hub.go`：广播中心——每订阅者 64 缓冲、慢消费者丢弃计数（不阻塞写库路径），
+    `Write()` 落库同链路 `broadcastLive`（无订阅者零开销：先查订阅数再 JSON 编码）。
+  - `internal/admin/wschan.go`：最小 WS 帧读写（服务端不掩码写 text/ping/close；客户端帧解掩码
+    读出即弃、只处理控制帧；>1MiB 帧拒绝）。
+  - `internal/admin/auditws.go`：`GET /api/admin/v1/audit/ws?token=<JWT>`——浏览器 WS 无法带
+    Authorization 头，token 走查询串，**鉴权失败在升级前 401**；30s ping 保活；积压丢弃达 512
+    主动 1013 关闭（前端重连即恢复）；每帧 = model.CallLog JSON（与 /audit/calls 字段对齐）。
+  - **大坑**：`http.Hijacker` 返回的 `*bufio.ReadWriter` 自带缓冲——再包一层 `bufio.NewWriter`
+    后 Flush 只写进 rw 内部缓冲，**101 握手永远到不了客户端**（测试卡死 1 分钟定位）。
+    修法：直接写 rw 并 Flush 它。
+- **前端**：`hooks/useAuditStream.ts`（断线 3s 自动重连、保留 30 条、reset）+
+  `components/LiveAuditStream.tsx`（实时卡片：状态 Tag、暂停=冻结快照+落后角标、清空），
+  嵌入 Calls 页顶部；i18n 双语 9 键（zh/en 词表 784/784 对齐校验通过）。
+- **单测**：hub 扇出/丢弃/并发安全（-race）+ WS 全链路 4 测试（原生 TCP 握手→推帧→close 回环→ping/pong）。
+- **真机探针** `.e2e/ws_probe.py`（Python 原生 socket 手写握手）：登录→建别名/Key→订阅→
+  发起网关调用→**断言收到该调用的实时帧**→close 回环，9/9 PASS。
+
+### 新增：前端 Chart 升级 echarts-for-react（待办 P2 #8 ✅）
+- `components/Charts.tsx` 重写：`LineChart`/`DonutChart` props 完全兼容（页面零改动），
+  `echarts/core` 按需注册（折线/饼图/网格/提示/图例/标题 + CanvasRenderer）。
+- **体积**：echarts 落独立 `Charts` chunk **535KB(gzip 181KB)**，仅随 Dashboard/TokenStats
+  懒加载页按需拉取；应用入口保持 178KB(gzip 63KB) 不变。
+- 增强项：tooltip 轴触发、饼图图例带百分比、滚动图例、空态沿用 antd Empty。
+
+### 新增：.env.template + Compose 升级（待办 #7/#12/#13 ✅）
+- 根目录 `.env.template`：全部环境变量文档化（含 REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS/
+  TRUSTED_PROXIES/TIKTOKEN_CACHE_DIR，逐项默认值与语义注释）；`cp .env.template .env` 即用。
+- `docker-compose.yml`：env 直通（REDIS/健康检查/TRUSTED_PROXIES）+ 注释形态的 redis 服务；
+  `.gitignore` 增加 `.env`。多节点 PG+Redis 拓扑见 README 第十二轮章节。
+
+### 回归与实测
+- 后端 `go test ./...` 9 包全绿（admin 新增 6 测试：prom 2 + hub 4 + WS 4 拆分见 git）。
+- 前端 `tsc --noEmit` + `vite build` 零错误；词表 784/784 对齐。
+- **MySQL 8.0 本机 E2E 20/20**（重置库后全新链路）；`/metrics` 实抓含上游健康行；
+  WS 探针 9/9。
 
 ##  本轮迭代变更（第十二轮）
 
@@ -294,8 +345,8 @@
 ## 📊 当前状态总览
 
 ### 编译状态
-- ✅ **后端** `go test ./...` — 全绿（guard/slb/quota/admin/gateway/tokens/health；admin 包本轮修复 2 个时区脆弱测试）
-- ✅ **前端** `vite build` — 零错误（入口 index 177KB / gzip 63KB + antd 1,362KB vendor chunk + 22 个按页 chunk）
+- ✅ **后端** `go test ./...` — 全绿 9 包（第十三轮新增：prom 5 测试 + hub 5 测试 + WS 4 测试，-race）
+- ✅ **前端** `vite build` — 零错误（入口 178KB/gzip 63KB + antd 1,363KB + Charts 535KB(gzip 181KB) echarts 按需 chunk + 22 个按页 chunk）
 
 ### 测试状态
 - ✅ **全后端** `go test ./...` — 全绿
@@ -317,9 +368,10 @@
 
 ### Git 状态
 - 当前分支：`cluster`
-- 最新提交：`05473b3 docs: record round-11 progress...`（第十二轮变更待提交）
-- 第十二轮涉及：`frontend/src/App.tsx`、`frontend/src/layouts/MainLayout.tsx`、`frontend/vite.config.ts`、
-  `README.md`、`docs/PROGRESS.md`、`backend/internal/admin/tokenstats_test.go`、`.gitignore`
+- 最新提交：`f652154 docs: multi-node deployment guide...`（第十三轮变更待提交）
+- 第十三轮涉及：`backend/internal/{metrics,audit,admin}`、`frontend/src/{hooks,components,pages/audit}`、
+  `frontend/src/components/Charts.tsx`、`frontend/package.json`、`.env.template`、`docker-compose.yml`、
+  `docs/api-contract.md`、`docs/PROGRESS.md`、`.gitignore`
 
 ## 📝 已完成迭代历史
 
@@ -406,13 +458,12 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 ## 📋 待办项（按优先级排序）
 
-### 当前待办速览（第十二轮后）
+### 当前待办速览（第十三轮后）
 
-- **P1**：空（#4 已完成）
-- **P2**：#5 WebSocket 审计推送、#6 Prometheus `/metrics`、#7 示例 .env + Compose（升级为 PG+Redis 模板）、#8 echarts
+- **P1/P2**：空（P2 #5/#6/#7/#8 与 DevOps #12/#13 全部完成）
 - **Minor**：#9 骨架屏、#10 ListenPortNote 前端消费
-- **DevOps**：#11 CI/CD、#12 Compose PG(+Redis)、#13 .env.template
-- **多节点**：#16 SWRR 全局游标（可选；#17 部署文档已完成）
+- **DevOps**：#11 GitHub Actions CI/CD
+- **多节点**：#16 SWRR 全局游标（可选）
 - **技术债**：SQLite 时区（P2）、CallLog 64KB（P3）、审计 writerLoop（P3，已有降级，可接受）
 
 ### P1 — 下一轮优先
@@ -424,14 +475,14 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 3 | ~~上游健康检查定时任务~~ ✅ | — | **已完成**（2026-09-04 第十一轮：`internal/health` + `HEALTH_CHECK_SECONDS`，联动熔断/Redis 广播） |
 | 4 | ~~前端路由懒加载~~ ✅ | — | **已完成**（2026-09-04 第十二轮：React.lazy + 双层 Suspense + vendor manualChunks，入口 177KB/gzip 63KB） |
 
-### P2 — 后续迭代
+### P2 — 后续迭代（全部完成）
 
-| # | 任务 | 工作量 | 描述 |
-|---|------|--------|------|
-| 5 | WebSocket 实时审计推送 | 中等 | 替代 ConfigStatus/Status 页面轮询 |
-| 6 | Prometheus Metrics 出口 | 中等 | 暴露 `/metrics` 端点供 Grafana |
-| 7 | 示例 .env + Docker Compose PG 模板 | 小 | 开箱即用多 DB 部署 |
-| 8 | 前端 Chart 升级 echarts-for-react | 中等 | 替代手动 SVG |
+| # | 任务 | 状态 |
+|---|------|------|
+| 5 | WebSocket 实时审计推送 | ✅ 2026-09-05 第十三轮：零依赖 RFC6455 + hub 广播 + 前端实时卡片 |
+| 6 | Prometheus Metrics 出口 | ✅ 2026-09-05 第十三轮：`/metrics` 文本 v0.0.4，零依赖 |
+| 7 | 示例 .env + Docker Compose PG 模板 | ✅ .env.template + compose env 直通（PG/Redis 拓扑见 README 多节点章节） |
+| 8 | 前端 Chart 升级 echarts-for-react | ✅ 2026-09-05 第十三轮：props 兼容重写，echarts/core 按需注册 |
 
 ### Minor — 体验优化
 
@@ -445,8 +496,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | # | 任务 | 描述 |
 |---|------|------|
 | 11 | GitHub Actions CI/CD | 自动构建+测试+推送镜像 |
-| 12 | docker-compose with postgres (+Redis) | PG+Redis 部署模板（多节点形态） |
-| 13 | .env.template | 环境变量文档化（含 REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS） |
+| 12 | ~~docker-compose with postgres (+Redis)~~ ✅ | PG+Redis 拓扑：README 多节点章节双网关模板（第十二轮）+ compose env 直通（第十三轮） |
+| 13 | ~~.env.template~~ ✅ | **已完成**（2026-09-05 第十三轮：全部变量文档化，cp 即用） |
 
 ### 多节点（多实例横向扩展）
 
@@ -503,9 +554,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 ---
 
 **下一步行动**:
-1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
-2. ✅ 第十轮：Redis 分布式限流/熔断/MFA 票据 — mysql/pg 多节点完整支持，双实例实测通过
-3. ✅ 第十一轮：X-Request-ID 透传 + protocol 枚举校验 + 上游健康检查（`hc_live.sh` 实测全过）
-4. ✅ 第十二轮：前端路由懒加载 + vendor 分包（入口 gzip 63KB）+ 多节点部署文档 + Ubuntu 24/MySQL 8.0 新环境 E2E 20/20 + 2 个时区脆弱测试修复
-5. ⏳ 后续按 P2 推进：#6 Prometheus `/metrics`、#5 WebSocket 审计推送、#7 .env+Compose 模板、#8 echarts
-6. ⏳ DevOps：#11 CI/CD、#13 .env.template
+1. ✅ 第十二轮：前端路由懒加载 + vendor 分包 + 多节点部署文档 + Ubuntu24/MySQL8.0 E2E 20/20
+2. ✅ 第十三轮：P2 全清——/metrics、WS 实时审计（零依赖 RFC6455）、echarts、.env 模板；MySQL E2E 20/20 + WS 探针 9/9
+3. ⏳ DevOps #11：GitHub Actions CI/CD
+4. ⏳ Minor：#9 骨架屏、#10 ListenPortNote 前端消费
+5. ⏳ 技术债：SQLite UTC 规范存储迁移、CallLog 大文本、#16 SWRR 全局游标（可选）

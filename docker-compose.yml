@@ -17,6 +17,11 @@ services:
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - DATA_DIR=/app/data
+      # 多节点 / 反代 / 健康检查（见 .env.template；留空即单机默认行为）
+      - REDIS_ADDR=${REDIS_ADDR:-}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - HEALTH_CHECK_SECONDS=${HEALTH_CHECK_SECONDS:-30}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
     volumes:
       - ${DATA_DIR_PATH:-./data}:/app/data
     restart: unless-stopped
@@ -26,3 +31,8 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    # 多节点部署（DB_TYPE=postgres/mysql）时取消注释并同时设置 REDIS_ADDR=redis:6379：
+    # redis:
+    #   image: redis:7
+    #   command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set-redis-password}"]
+    #   restart: unless-stopped
