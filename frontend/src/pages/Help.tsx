@@ -142,6 +142,26 @@ export default function Help() {
         </Paragraph>
       </Card>
 
+      <Card title={t('help.securityTitle')} size="small" style={{ marginBottom: 16 }}>
+        <Paragraph>{t('help.securityIntro')}</Paragraph>
+        <ul style={{ margin: 0, paddingLeft: 20 }}>
+          {[
+            { l: t('help.securityIpLabel'), b: t('help.securityIp') },
+            { l: t('help.securityHeadersLabel'), b: t('help.securityHeaders') },
+            { l: t('help.securitySecretsLabel'), b: t('help.securitySecrets') },
+            { l: t('help.securityJwtLabel'), b: t('help.securityJwt') },
+            { l: t('help.securityStorageLabel'), b: t('help.securityStorage') },
+            { l: t('help.securityTopologyLabel'), b: t('help.securityTopology') },
+            { l: t('help.securityTlsLabel'), b: t('help.securityTls') },
+          ].map((it, i) => (
+            <li key={i} style={{ marginBottom: 8 }}>
+              <Text strong>{it.l}：</Text>
+              {it.b}
+            </li>
+          ))}
+        </ul>
+      </Card>
+
       <Card size="small" style={{ background: '#fafafa' }}>
         <Typography>
           <QuestionCircleOutlined style={{ marginRight: 8, color: '#1677ff' }} />
