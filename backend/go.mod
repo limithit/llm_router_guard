@@ -3,11 +3,13 @@ module llmrouter
 go 1.25
 
 require (
+	github.com/alicebob/miniredis/v2 v2.34.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/pquerna/otp v1.4.0
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/crypto v0.31.0
 	gorm.io/driver/mysql v1.5.7
@@ -17,7 +19,6 @@ require (
 
 require (
 	github.com/alicebob/gopher-json v0.0.0-20230218143504-906a9b012302 // indirect
-	github.com/alicebob/miniredis/v2 v2.34.0 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
@@ -50,7 +51,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
-	github.com/redis/go-redis/v9 v9.7.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
