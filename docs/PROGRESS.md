@@ -233,6 +233,35 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 12 | docker-compose with postgres | PG 部署模板 |
 | 13 | .env.template | 环境变量文档化 |
 
+### 多节点（多实例横向扩展）
+
+| # | 任务 | 描述 |
+|---|------|------|
+| 14 | Redis 全局速率限制 | 把 `RateLimiter.windows` 内存滑动窗口迁到 Redis（滑动窗口 Lua），多实例下限流精确 |
+| 15 | Redis 全局熔断状态 | `slb.Balancer.breakers` 迁到 Redis 或定时同步，多实例共享熔断开关 |
+| 16 | SWRR 全局游标（可选） | 别名轮询游标迁 Redis；或按实例一致性哈希分片，避免多实例各自轮询导致的分布偏差 |
+| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明 |
+
+## 🌐 多节点能力矩阵（当前状态）
+
+> SQLite = 单节点（文件锁、`MaxOpenConns=1`）；以下针对 **Postgres/MySQL** 多实例。
+
+| 状态域 | 是否跨实例一致 | 机制 | 多节点表现 |
+|--------|--------------|------|------------|
+| 配置热加载 | ✅ 是 | `Bump()` 递增 `config_meta.counter` + 每 `HotReloadSeconds` 轮询 | 一实例改配置，其余 ≤3s 内重载 |
+| 配额（quota） | ✅ 是 | `Consume` 走 DB `UPDATE used_value + delta` | 全局精确 |
+| 调用审计 | ✅ 是 | 异步批量写 DB | 共享 |
+| API Key/供应商/别名/限流规则 | ✅ 是 | 全 DB 存储 + 快照重载 | 共享 |
+| 管理后台 JWT | ✅ 是 | 无状态 HS256 | 任一实例可校验 |
+| **SLB 熔断器** | ❌ 否 | `slb.Balancer` 内存 map（单实例语义） | A 熔断 B 不知；需 Redis 共享（待办 #15） |
+| **速率限制** | ❌ 否 | `RateLimiter.windows` 内存滑动窗口 | "100/min" 在 N 实例下变 N×100；需 Redis（待办 #14） |
+| **SWRR 游标** | ❌ 否 | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确） |
+
+**部署结论**：
+- 单节点：sqlite / pg / mysql 均可。
+- 多节点（接受"熔断/限流每实例独立"）：pg/mysql 多实例 + 前置 LB；配置/配额/审计全局一致。
+- 多节点 + 全局精确限流/熔断：需接入 Redis（待办 #14/#15/#16）。
+
 ## 🔑 关键技术决策记录
 
 1. **配置存储**: 全部业务配置走数据库，不读磁盘 YAML/JSON (PRD 6.2)
