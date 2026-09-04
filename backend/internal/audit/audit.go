@@ -17,11 +17,15 @@ type Logger struct {
 	db    *gorm.DB
 	ch    chan *model.CallLog
 	clean func() time.Duration // 审计保留期
+	hub   *Hub                 // 实时广播中心（P2 #5 WebSocket 订阅者）
 }
 
 func NewLogger(gdb *gorm.DB, retention func() time.Duration) *Logger {
-	return &Logger{db: gdb, ch: make(chan *model.CallLog, 4096), clean: retention}
+	return &Logger{db: gdb, ch: make(chan *model.CallLog, 4096), clean: retention, hub: NewHub()}
 }
+
+// Broadcaster 返回实时广播中心（无订阅者时广播零开销）。
+func (l *Logger) Broadcaster() *Hub { return l.hub }
 
 func (l *Logger) Start(ctx context.Context) {
 	go l.writerLoop(ctx)
@@ -29,6 +33,7 @@ func (l *Logger) Start(ctx context.Context) {
 }
 
 // Write 非阻塞投递调用日志；队列满时直接落库兜底（不丢审计）。
+// 投递成功后向实时广播中心转发（有订阅者才做 JSON 编码，热路径零成本）。
 func (l *Logger) Write(cl *model.CallLog) {
 	if cl == nil {
 		return
@@ -37,6 +42,17 @@ func (l *Logger) Write(cl *model.CallLog) {
 	case l.ch <- cl:
 	default:
 		l.db.Create(cl)
+	}
+	l.broadcastLive(cl)
+}
+
+// broadcastLive 向 WebSocket 订阅者推送（非阻塞、慢消费者丢弃，绝不拖慢写库）。
+func (l *Logger) broadcastLive(cl *model.CallLog) {
+	if l.hub == nil || l.hub.Subscribers() == 0 {
+		return
+	}
+	if b, err := json.Marshal(cl); err == nil {
+		l.hub.PublishNonBlocking(b)
 	}
 }
 

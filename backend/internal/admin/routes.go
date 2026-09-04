@@ -16,6 +16,12 @@ import (
 // Register 在 gin 实例上注册所有路由。
 func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	// Prometheus 抓取端点（P2 #6）：文本 v0.0.4，零依赖；建议仅内网/监控网段可达
+	// （LB/网关层限制），故不做 JWT 鉴权——鉴权会让抓取端无法简单配置。
+	r.GET("/metrics", func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s.mx.WritePromRender(c.Writer, s)
+	})
 
 	// 网关端点（REQ-017）
 	gw := r.Group("/v1")
@@ -105,6 +111,9 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	api.GET("/audit/calls/export", s.AuthMiddleware(), s.exportCallLogs)
 	api.GET("/audit/operations", s.AuthMiddleware(), s.listOpLogs)
 	api.GET("/audit/operations/export", s.AuthMiddleware(), s.exportOpLogs)
+	// 实时调用审计流（P2 #5）：浏览器 WS 无法自定义 Authorization 头，token 走查询串，
+	// 鉴权在升级前完成（401 不产生半开 WebSocket）。
+	api.GET("/audit/ws", s.auditWS)
 
 	// Token 用量统计看板（API Key 维度）
 	api.GET("/token-stats", s.AuthMiddleware(), s.tokenStats)
