@@ -46,6 +46,7 @@ type Metrics struct {
 	start        time.Time
 	todayCalls   int64
 	todayBlocked int64
+	promMu       sync.Mutex // 序列化 /metrics 抓取（HealthList 内部取 bl.mu，防抓取并发竞争）
 }
 
 func New() *Metrics {
