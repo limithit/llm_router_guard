@@ -99,7 +99,9 @@ type ConfigMeta struct {
 func LoadKV[T any](gdb *gorm.DB, key string, dst *T, def T) error {
 	*dst = def // 先填默认值，缺失字段保留默认（前向兼容，避免新增字段被旧记录清零）
 	var row model.SystemSetting
-	err := gdb.Where("key = ?", key).First(&row).Error
+	// 用结构体条件而非裸 "key = ?"：key 是 MySQL 保留字（原生 SQL 不加反引号会 1064），
+	// 结构体条件由 GORM 按方言加引号，sqlite/mysql/postgres 通吃。
+	err := gdb.Where(model.SystemSetting{Key: key}).First(&row).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil
@@ -145,7 +147,7 @@ func EnsureDefaults(gdb *gorm.DB, port int) error {
 	}
 	for _, p := range pairs {
 		var cnt int64
-		gdb.Model(&model.SystemSetting{}).Where("key = ?", p.key).Count(&cnt)
+		gdb.Model(&model.SystemSetting{}).Where(model.SystemSetting{Key: p.key}).Count(&cnt)
 		if cnt == 0 {
 			if err := SaveKV(gdb, p.key, p.val); err != nil {
 				return err

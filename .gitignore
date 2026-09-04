@@ -21,3 +21,4 @@ Thumbs.db
 # 本机 Go 构建缓存（沙箱内 GOCACHE 指向工作区时使用）
 .gocache/
 .npmcache/
+deploy/llm-router-guard-linux-amd64

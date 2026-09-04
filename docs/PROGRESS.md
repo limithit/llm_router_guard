@@ -1,6 +1,48 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-03（第八轮：前端 i18n 中英文切换，纯前端改造）
+最后更新：2026-09-04（第九轮：MySQL/PostgreSQL 连库实测 + 两个跨库 bug 修复）
+
+##  本轮迭代变更（第九轮）
+
+### 连库实测（真实 Linux 环境 + 真实 MySQL/PG）
+- **环境**：debian13 (192.168.20.132)，MySQL 8.4.11 (3306) / PostgreSQL 17.10 (5432)；
+  Windows 交叉编译 `GOOS=linux GOARCH=amd64 CGO_ENABLED=0`，二进制 + mock 上游 + E2E 脚本 scp 部署，全程真实服务（非容器）。
+- **E2E 覆盖 20 项**（`deploy/e2e.py`，对运行中服务实测）：
+  管理端登录 → 供应商创建+测试连接（真实 HTTP 探测 `/v1/models`）→ 模型别名 → 敏感词护栏 → API Key 签发 →
+  网关非流式调用（上游 usage 42/17 透传）→ 流式调用（末块 usage 11/5 汇聚）→ 输入护栏 block（400 content_filtered）→
+  输出护栏 replace（短输出兜底检测生效，泄漏词被安全文案替换）→ 调用审计（ok/blocked 落库）→
+  Token 用量统计（calls=4, 95+39=134 tokens 与 mock usage 精确吻合）→ 配额超限 429 → 配额删除 →
+  限流 2/10s 第三发 429 → 限流删除 → 操作审计 → Dashboard。
+- **结果**：MySQL 20/20 ✅、PostgreSQL 20/20 ✅、MySQL 修复后回归 20/20 ✅、SQLite 启动冒烟 ✅。
+
+### 修复：MySQL 保留字 `key` 导致启动失败（P0，阻断 MySQL 部署）
+- **现象**：`settings.EnsureDefaults` 报 `Error 1064 (42000): ... near 'key = ?'`，进程启动即退出。
+- **根因**：`system_settings` 主键列名 `key` 是 MySQL 保留字；`Where("key = ?")` 是裸 SQL 片段，
+  GORM 不加反引号（结构体字段才会按方言转义），SQLite/PG 恰好能容忍所以单库开发发现不了。
+- **修复**（`internal/settings/settings.go`）：两处裸片段改为结构体条件
+  `Where(model.SystemSetting{Key: ...})`，由 GORM 按方言加引号，三库通吃。
+- **教训**：列名撞保留字时，裸 `Where("col = ?")` 在 GORM 里不会转义；要么用结构体条件，要么写 `"\\`key\\` = ?"`。
+
+### 修复：`gorm:"type:longtext"` 导致 PostgreSQL 迁移失败（P0，阻断 PG 部署）
+- **现象**：PG 下 AutoMigrate 报 `ERROR: type "longtext" does not exist (SQLSTATE 42704)`，启动即退出。
+- **根因**：`model.go` 两处硬编码 MySQL 专属类型（`ConfigVersion.SnapshotJSON` / `BackupRecord.Content`）；
+  SQLite 无类型系统所以从没暴露。
+- **修复**（`internal/model/model.go`）：删掉 `type:longtext` 标签。无 size 的 string 由 GORM 按方言默认映射：
+  mysql→longtext、pg→text、sqlite→text，行为不变且跨库正确。
+- **教训**：跨库项目禁用方言专属 gorm type 标签；需要大文本就用无标签 string 或 `type:text`。
+
+### 附带发现（未修，记录在案）
+- **供应商 protocol 无后端校验**：创建供应商时 protocol 传任意值（如 `openai`）都接受，
+  直到网关转发才报 `unsupported upstream protocol "openai"`（502）。建议在 `createProvider/updateProvider`
+  校验枚举 `openai_chat|openai_responses|anthropic`，把错误提前到管理面。
+
+### 实测工具链沉淀（`deploy/`，可在测试机 `/root/gateway-test/` 复跑）
+- `mockup.py`：OpenAI 兼容 mock 上游（/v1/models + 非流式/流式 chat，usage 固定值，可控触发输出违规）。
+- `e2e.py`：20 步 E2E（用法 `python3 e2e.py BASE_URL ADMIN_PASSWORD`，审计断言带异步落库轮询）。
+- `env.sh` / `reset_db.sh` / `stop_server.sh` / `run_server.sh` / `do_all.sh` / `cleanup.sh`：
+  DSN 集中管理、建库、停服（pidfile+fuser 双保险释放端口）、起服+健康等待、一键「停→重置→起→测」、现场清理。
+- **Windows 侧踩坑**：`ssh root@host '命令含引号'` 时引号会被 PowerShell→ssh 两层剥掉，
+  含 `$`/引号/括号的命令务必写成 `.sh` 文件 scp 上去再 `bash xxx.sh`，不要内联。
 
 ##  本轮迭代变更（第八轮）
 
@@ -115,7 +157,7 @@
 ### Git 状态
 - 当前分支：`dev`
 - 最新提交：`8e9abef feat(frontend): add zh-CN/en-US i18n switching (frontend-only)`（第八轮）
-- 工作区：干净
+- 工作区：第九轮改动**未提交**（`settings.go` / `model.go` 两处跨库修复 + `deploy/` 实测工具链 + 本文档）
 
 ## 📝 已完成迭代历史
 
@@ -189,6 +231,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 2 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
 | 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
 | 4 | P2 | SQLite 时间过滤（第七轮残留） | `created_at` 文本比较依赖库存/参数同偏移；**部署机换时区或 DST** 时存量行需一次性重写 | 长期：UTC 规范存储 + 数据迁移；短期：部署文档注明 |
+| 5 | P2 | `admin/providers.go` | 供应商 `protocol` 创建/更新时无枚举校验，非法值（如 `openai`）静默入库，网关转发时才报错 502 | createProvider/updateProvider 校验 `openai_chat\|openai_responses\|anthropic` |
+| 6 | P3 | `model/model.go` | `CallLog.InputText/OutputText` 用 `type:text`，MySQL 下上限 64KB，超长 prompt 可能截断 | 升 `MEDIUMTEXT`（方言标签）或改无标签 string（mysql=longtext）；截断更稳妥 |
 
 ### 前端
 
@@ -285,9 +329,10 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 ---
 
 **下一步行动**:
-1. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
-2. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
-3. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
-4. ✅ P1 #2: Token 估算精度提升（tiktoken-go 集成）— 已完成（第六轮）
-5. ⏳ 提交第七轮变更并（可选）为 Token 统计时区修复补一个 `X-Request-ID` 转发之外的回归冒烟
-5. 后续按 P2/Minor/DevOps 推进
+1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
+2. ⏳ 提交第九轮变更（settings.go / model.go / deploy/ / 本文档）
+3. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
+4. ⏳ 供应商 protocol 枚举校验（本轮实测发现，工作量小）
+5. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
+6. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
+7. 后续按 P2/Minor/DevOps 推进

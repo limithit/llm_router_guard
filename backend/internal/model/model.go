@@ -224,7 +224,7 @@ const (
 type ConfigVersion struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	Version      string    `gorm:"size:32;index" json:"version"`
-	SnapshotJSON string    `gorm:"type:longtext" json:"-"` // 全量配置快照，用于回滚
+	SnapshotJSON string    `json:"-"` // 全量配置快照，用于回滚（无 size 的 string 由 GORM 按方言映射：mysql=longtext / pg=text / sqlite=text）
 	Status       string    `gorm:"size:16" json:"status"`  // ok|error
 	Message      string    `gorm:"size:512" json:"message"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -283,7 +283,7 @@ type OperationLog struct {
 type BackupRecord struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Filename  string    `gorm:"size:128" json:"filename"`
-	Content   string    `gorm:"type:longtext" json:"-"`
+	Content   string    `json:"-"` // 备份内容（无 size 的 string 由 GORM 按方言映射，不用 MySQL 专属的 longtext 标签）
 	SizeBytes int64     `json:"size_bytes"`
 	CreatedAt time.Time `json:"created_at"`
 }
