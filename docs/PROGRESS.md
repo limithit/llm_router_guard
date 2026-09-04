@@ -230,16 +230,22 @@
   |----|-----------|---------|---------|
   | `internal/guard` | 32 | engine_test.go (450行) | 关键词 contains/exact/regex、PII 检测+脱敏、注入检测、输出过滤 block/replace/log、护栏禁用、Unicode、全链路集成、MaskForLog、FindingsJSON |
   | `internal/slb` | 22 | slb_test.go (502行) | 加权选择(SWRR)、权重分布统计、熔断器开/半开/恢复、故障转移全循环、PickIgnoringCircuit、HealthList、并发安全 |
-  | `internal/quota` | 32 | quota_test.go (590行) | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 |
+  | `internal/quota` | 35 | quota_test.go (590行) + redis_limiter_test.go | NextReset 日/周(周一)/月/跨年、matchQuotas 通配、限流窗口+重置、配额 Check/Consume/惰性重置、FlushHits、多规则并发 + **Redis 分布式限流（miniredis）：双实例共享计数双向 429、窗口过期恢复、Redis 故障降级本地** |
   | `internal/admin` | 15 | providers_test.go (111行) + tokenstats_test.go (426行) | 供应商测试连接 + 模型列表解析 + Token 用量统计（聚合/过滤/趋势/CSV + 前端 UTC 时间范围回归 + parseTimeQ 时区归一化） |
   | `internal/gateway` | 5 | gateway_test.go (180行) | 流式输出护栏：短输出兜底检测 / 阈值检测 / 正常输出不误拦截 + estimateUsage 回退与保留 |
   | `internal/tokens` | 5 | tokens_test.go (70行) | Count 精确编码 / Estimate 启发式回退 / 空串边界 |
-  | **合计** | **109** | **7 文件** | — |
+  | **合计** | **~112** | **8 文件** | — |
+
+### 连库/多节点实测状态（第九~十轮，真实环境 debian13）
+- ✅ MySQL 8.4.11 / PostgreSQL 17.10：20 步 E2E 各 **20/20**（第九轮 `deploy/e2e.py`）
+- ✅ 双实例 + Redis：分布式限流全局 429、熔断跨实例 ≤1s 同步 + 半开恢复（第十轮 `deploy/mn_redis.sh` / `mn_circuit.sh`）
+- ✅ MySQL + Redis 单实例回归 20/20（第十轮）
 
 ### Git 状态
 - 当前分支：`dev`
-- 最新提交：`8e9abef feat(frontend): add zh-CN/en-US i18n switching (frontend-only)`（第八轮）
-- 工作区：第九轮改动**未提交**（`settings.go` / `model.go` 两处跨库修复 + `deploy/` 实测工具链 + 本文档）
+- 最新提交：`e08a2db feat(multi-node): Redis-distributed rate limiting, breaker sharing, MFA tickets for MySQL/PG (round 10)`
+- 最近三笔：`97421ab docs`(MFA 矩阵) ← `72cd6b7 test`(双实例实测) ← `7c4ddfa fix(db)`(跨库修复)
+- 工作区：干净（本轮文档更新待随下次提交）
 
 ## 📝 已完成迭代历史
 
@@ -416,7 +422,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 **下一步行动**:
 1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
 2. ✅ 第十轮：Redis 分布式限流/熔断/MFA 票据 — mysql/pg 多节点完整支持，双实例实测通过
-3. ⏳ 提交第九/十轮变更
+3. ✅ 第九/十轮变更已提交（`7c4ddfa` / `72cd6b7` / `97421ab` / `e08a2db`）
 4. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
 5. ⏳ 供应商 protocol 枚举校验（第九轮实测发现，工作量小）
 6. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
