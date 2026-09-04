@@ -1,6 +1,48 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-04（第十一轮：X-Request-ID 全链路透传 + protocol 枚举校验 + 上游健康检查定时任务）
+最后更新：2026-09-04（第十二轮：前端路由懒加载 + vendor 分包 + 多节点部署文档 + 新环境连库实测）
+
+##  本轮迭代变更（第十二轮）
+
+### 新增：前端路由级代码分割（待办 P1 #4 ✅）
+- **App.tsx**：22 个业务页面全部 `React.lazy` 懒加载（Login/NotFound 轻量页保持静态引入），
+  路由级自动拆 chunk；`App.tsx` 顶层 `Suspense` 全局兜底。
+- **MainLayout.tsx**：`<Outlet />` 外再包一层 `Suspense`（Spin 兜底）——懒加载页加载期间
+  **仅内容区显示 Spin，侧栏/顶栏保持挂载不闪**（若只有顶层边界，整页布局会被 fallback 替换）。
+- **vite.config.ts**：`manualChunks` vendor 分层（react 全家桶 / antd+icons+dayjs / i18next）——
+  业务页频繁迭代，vendor 稳定不变，独立 chunk 后发版只使业务 chunk 失效，命中浏览器长缓存。
+- **效果**（vite build 实测）：单包 1,771KB(gzip 551KB) → **入口 index 177KB(gzip 63KB)** +
+  antd 1,362KB(gzip 424KB，首载后长缓存) + react 65KB + i18n 70KB + 22 个按页 chunk；
+  首次访问串行瀑布减半，后续访问 vendor 零流量。
+- `tsc --noEmit` 零错误，构建通过；chunk 警告消除（单 chunk 不再超 1500KB 限制）。
+
+### 新增：多节点部署文档（待办 #17 ✅）
+- README 新增「**多节点部署（PostgreSQL / MySQL + Redis）**」章节：拓扑图（LB → N 实例 → 共享 PG/MySQL + Redis）、
+  LB 探活端点 `GET /healthz`（无鉴权，实测存在）。
+- 环境变量表补充 `REDIS_ADDR` / `REDIS_PASSWORD` / `HEALTH_CHECK_SECONDS` 三个变量的精确语义
+  （与 `config.go` 默认值逐一核对：健康检查默认 30s、0=禁用；任何 HTTP 响应=可达=清熔断）。
+- 跨实例一致性速查：DB 承载（配置/配额/审计/JWT）+ Redis 承载（限流/熔断广播/MFA 票据）+ 实例本地（SWRR 游标）；
+  **LB 后必须设 `TRUSTED_PROXIES`**，否则 API Key IP 白名单全匹配到 LB 地址形同虚设；
+  多实例 `JWT_SECRET`/`MASTER_KEY` 必须一致（JWT 互认 + API Key 密文可解）。
+- 双网关 + PG + Redis 的 Docker Compose 多节点模板（YAML anchor 复用，`:?` 强制注入密钥）。
+
+### 修复：TokenStats 两个时区脆弱测试（新环境实测暴露）
+- `TestTokenStats_Aggregation`：`base = now-2d` 直用当前时刻，**21:00 后跑测试时 base+3h 跨过本地午夜**，
+  日分桶裂成 2 个 → `trend len=2, want 1` 失败（新机当晚 22:03 复现）。修复：base 固定到
+  「2 天前的本地 09:00」，+3h→12:00 永不跨日。
+- `TestTokenStats_HistoricalTrend`：`Truncate(24h)` 按 **UTC** 对齐（东八区 UTC+8：UTC 16:00 起=本地次日 0 点起），
+  极端时区下两个相邻 UTC 日可能塌进同一本地日 → 3 桶变 2。修复：用本地年月日重建正午 12:00。
+- **教训**：跨午夜/跨日分桶测试的相对时间种子必须固定在远离午夜的安全时刻（如 09:00/12:00），
+  且禁用 `Truncate(24h)` 做本地日对齐（它按 UTC 截断）。
+
+### 新环境连库实测（Ubuntu 24.04 + MySQL 8.0.46 本机）
+- **MySQL E2E 20/20 ✅**（`deploy/e2e.py`，root 账号 auth_socket 插件不可 TCP 密码登录——
+  Ubuntu 默认——建专用 `gateway` 账号 `mysql_native_password` 后实测）。
+- 非流式 usage 42/17 透传、流式末块 11/5 汇聚、输入护栏 block、输出护栏 replace、
+  配额/限流 429、审计落库、Token 统计 134 tokens 精确吻合——全部通过。
+- 踩坑：Go 1.24+ 的 `-buildvcs` 在 root 跑 `limit` 用户的 git 仓库时 `dubious ownership` 报错，
+  本地编译加 `-buildvcs=false`；VPN（香港节点）下 Go 模块代理用 `proxy.golang.org`，
+  `goproxy.cn` 跨境巨慢（golang.org/x/* 每个 10-20s）。
 
 ##  本轮迭代变更（第十一轮）
 
@@ -252,8 +294,8 @@
 ## 📊 当前状态总览
 
 ### 编译状态
-- ✅ **后端** `go test ./...` — 全绿（guard/slb/quota/admin/gateway）
-- ✅ **前端** `vite build` — 零错误（dist/assets/index-D1hCx5BN.js 1,600 KB / gzip 503 KB）
+- ✅ **后端** `go test ./...` — 全绿（guard/slb/quota/admin/gateway/tokens/health；admin 包本轮修复 2 个时区脆弱测试）
+- ✅ **前端** `vite build` — 零错误（入口 index 177KB / gzip 63KB + antd 1,362KB vendor chunk + 22 个按页 chunk）
 
 ### 测试状态
 - ✅ **全后端** `go test ./...` — 全绿
@@ -267,16 +309,17 @@
   | `internal/tokens` | 5 | tokens_test.go (70行) | Count 精确编码 / Estimate 启发式回退 / 空串边界 |
   | **合计** | **~112** | **8 文件** | — |
 
-### 连库/多节点实测状态（第九~十轮，真实环境 debian13）
-- ✅ MySQL 8.4.11 / PostgreSQL 17.10：20 步 E2E 各 **20/20**（第九轮 `deploy/e2e.py`）
+### 连库/多节点实测状态（第九~十二轮）
+- ✅ MySQL 8.4.11 / PostgreSQL 17.10：20 步 E2E 各 **20/20**（第九轮 `deploy/e2e.py`，debian13 真实环境）
+- ✅ MySQL 8.0.46（Ubuntu 24.04 本机）：20 步 E2E **20/20**（第十二轮复测，新环境从零搭建）
 - ✅ 双实例 + Redis：分布式限流全局 429、熔断跨实例 ≤1s 同步 + 半开恢复（第十轮 `deploy/mn_redis.sh` / `mn_circuit.sh`）
 - ✅ MySQL + Redis 单实例回归 20/20（第十轮）
 
 ### Git 状态
-- 当前分支：`dev`
-- 最新提交：`e08a2db feat(multi-node): Redis-distributed rate limiting, breaker sharing, MFA tickets for MySQL/PG (round 10)`
-- 最近三笔：`97421ab docs`(MFA 矩阵) ← `72cd6b7 test`(双实例实测) ← `7c4ddfa fix(db)`(跨库修复)
-- 工作区：干净（本轮文档更新待随下次提交）
+- 当前分支：`cluster`
+- 最新提交：`05473b3 docs: record round-11 progress...`（第十二轮变更待提交）
+- 第十二轮涉及：`frontend/src/App.tsx`、`frontend/src/layouts/MainLayout.tsx`、`frontend/vite.config.ts`、
+  `README.md`、`docs/PROGRESS.md`、`backend/internal/admin/tokenstats_test.go`、`.gitignore`
 
 ## 📝 已完成迭代历史
 
@@ -363,13 +406,13 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 ## 📋 待办项（按优先级排序）
 
-### 当前待办速览（第十一轮后）
+### 当前待办速览（第十二轮后）
 
-- **P1**：#4 前端路由懒加载
+- **P1**：空（#4 已完成）
 - **P2**：#5 WebSocket 审计推送、#6 Prometheus `/metrics`、#7 示例 .env + Compose（升级为 PG+Redis 模板）、#8 echarts
 - **Minor**：#9 骨架屏、#10 ListenPortNote 前端消费
 - **DevOps**：#11 CI/CD、#12 Compose PG(+Redis)、#13 .env.template
-- **多节点**：#16 SWRR 全局游标（可选）、#17 多节点部署文档（REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS + 拓扑）
+- **多节点**：#16 SWRR 全局游标（可选；#17 部署文档已完成）
 - **技术债**：SQLite 时区（P2）、CallLog 64KB（P3）、审计 writerLoop（P3，已有降级，可接受）
 
 ### P1 — 下一轮优先
@@ -379,7 +422,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 1 | ~~X-Request-ID 转发给上游~~ ✅ | — | **已完成**（2026-09-04 第十一轮：入站复用 + 响应回带 + 转发上游） |
 | 2 | ~~Token 估算精度提升 (tiktoken-go)~~ ✅ | — | **已完成**（2026-09-02） |
 | 3 | ~~上游健康检查定时任务~~ ✅ | — | **已完成**（2026-09-04 第十一轮：`internal/health` + `HEALTH_CHECK_SECONDS`，联动熔断/Redis 广播） |
-| 4 | 前端路由懒加载 | 小 | `frontend/src/App.tsx` + 各 page |
+| 4 | ~~前端路由懒加载~~ ✅ | — | **已完成**（2026-09-04 第十二轮：React.lazy + 双层 Suspense + vendor manualChunks，入口 177KB/gzip 63KB） |
 
 ### P2 — 后续迭代
 
@@ -412,7 +455,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 14 | ~~Redis 全局速率限制~~ ✅ | **已完成**（2026-09-04 第十轮：固定窗口 Lua 原子计数 + 故障降级，双实例实测全局 429） |
 | 15 | ~~Redis 全局熔断状态~~ ✅ | **已完成**（2026-09-04 第十轮：打开事件 SETEX 广播 + TTL 半开，双实例实测 ≤1s 同步） |
 | 16 | SWRR 全局游标（可选） | 别名轮询游标迁 Redis；或按实例一致性哈希分片，避免多实例各自轮询导致的分布偏差 |
-| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明（含 REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS 说明） |
+| 17 | ~~多节点部署文档~~ ✅ | **已完成**（2026-09-04 第十二轮：README 多节点章节——拓扑图 /healthz 探活、REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS 语义、TRUSTED_PROXIES 警示、一致性速查、Compose 双网关模板） |
 
 ## 🌐 多节点能力矩阵（第十轮后）
 
@@ -462,8 +505,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 **下一步行动**:
 1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
 2. ✅ 第十轮：Redis 分布式限流/熔断/MFA 票据 — mysql/pg 多节点完整支持，双实例实测通过
-3. ✅ 第九/十轮变更已提交（`7c4ddfa` / `72cd6b7` / `97421ab` / `e08a2db`）
-4. ✅ 第十一轮：X-Request-ID 透传 + protocol 枚举校验 + 上游健康检查（`hc_live.sh` 实测全过）
-5. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
-6. ⏳ #17 多节点部署文档（README：REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS + 拓扑）
-7. 后续按 P2/Minor/DevOps 推进
+3. ✅ 第十一轮：X-Request-ID 透传 + protocol 枚举校验 + 上游健康检查（`hc_live.sh` 实测全过）
+4. ✅ 第十二轮：前端路由懒加载 + vendor 分包（入口 gzip 63KB）+ 多节点部署文档 + Ubuntu 24/MySQL 8.0 新环境 E2E 20/20 + 2 个时区脆弱测试修复
+5. ⏳ 后续按 P2 推进：#6 Prometheus `/metrics`、#5 WebSocket 审计推送、#7 .env+Compose 模板、#8 echarts
+6. ⏳ DevOps：#11 CI/CD、#13 .env.template

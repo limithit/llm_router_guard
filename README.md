@@ -45,6 +45,9 @@ cd ..
 | `DATA_DIR` | `./data` | 备份文件存放目录 |
 | `FRONTEND_DIST` | (auto-detect) | 前端构建产物目录 |
 | `TRUSTED_PROXIES` | (empty) | 可信反代 CIDR（逗号分隔）。默认空 → `ClientIP` 取 TCP 对端、不解析 `X-Forwarded-For`，防伪造 IP 绕过 API Key 的 IP 白名单；反代部署时设为代理 CIDR（如 `127.0.0.1/32,10.0.0.0/8`） |
+| `REDIS_ADDR` | (empty) | Redis 地址（`host:port`）。mysql/postgres 部署配置后启用**分布式限流 / 熔断状态广播 / MFA 二步票据**（多节点必备；sqlite 单节点忽略）。详见[多节点部署](#多节点部署postgresql--mysql--redis) |
+| `REDIS_PASSWORD` | (empty) | Redis 密码；带 `requirepass` 的实例必须配置，否则组件 NOAUTH 自动降级为单实例语义 |
+| `HEALTH_CHECK_SECONDS` | `30` | 上游健康检查周期秒数，`0`=禁用。周期探测各启用供应商 `GET <base>/v1/models`，任何 HTTP 响应=可达（清熔断），仅传输层错误累计失败；结果联动熔断并经 Redis 广播 |
 
 首次启动会自动创建 admin 用户（用户名可在 `ADMIN_USER` 中自定义），并在控制台打印默认密码。**请立即通过 Web 界面修改密码**。
 
@@ -216,6 +219,87 @@ volumes:
   pg-data:
 ```
 > 切库只改这两个变量，业务表（供应商 / 模型 / 配额 / 审计等）随 `AutoMigrate` 自动建到新库。**库之间不做数据迁移**——切到新 `DB_DSN` 即一个空库，历史数据需自行导出/导入。
+
+### 多节点部署（PostgreSQL / MySQL + Redis）
+
+横向扩展形态：N 个网关实例（同一二进制 + `web/dist`）+ 前置负载均衡，全部实例指向同一套共享存储。**单节点无需 Redis**，以下仅多实例部署需要。
+
+```
+                  ┌────────────────────────────────┐
+                  │   LB（Nginx / HAProxy / 云 LB） │
+                  │   探活端点: GET /healthz        │
+                  └───────────────┬────────────────┘
+           ┌──────────────────────┼──────────────────────┐
+           ▼                      ▼                      ▼
+     ┌────────────┐        ┌────────────┐         ┌────────────┐
+     │ 网关实例 A  │        │ 网关实例 B  │   ...   │ 网关实例 N  │
+     └──────┬─────┘        └──────┬─────┘         └──────┬─────┘
+            │      所有实例指向同一套共享存储                 │
+            └──────────────┬─────────────────────────────┘
+                           ▼
+    ┌─────────────────────────┐     ┌──────────────────────────┐
+    │  PostgreSQL / MySQL      │     │  Redis（REDIS_ADDR）      │
+    │  配置/配额/审计/API Key  │     │  限流计数/熔断广播/MFA票据 │
+    └─────────────────────────┘     └──────────────────────────┘
+```
+
+**多节点环境变量**
+
+| 变量 | 说明 |
+|------|------|
+| `DB_TYPE` + `DB_DSN` | 所有实例指向**同一个** PostgreSQL / MySQL 库；sqlite 仅限单节点（文件锁 + 单写连接） |
+| `REDIS_ADDR` | Redis 地址 `host:port`，启用分布式限流（原子 INCR 固定窗口）、熔断打开状态广播（SETEX + TTL 自动半开）、MFA 二步票据（GET+DEL 原子核销）。仅 mysql/postgres 生效 |
+| `REDIS_PASSWORD` | Redis 密码；带 `requirepass` 的 Redis 必须配置，否则三组件启动即 `NOAUTH` 降级（行为如实告警） |
+| `HEALTH_CHECK_SECONDS` | 上游健康检查周期秒（默认 30，`0`=禁用）：任何 HTTP 响应（含 401/404）=端点可达=清熔断；仅传输层错误（超时/DNS/连接拒绝）累计，达熔断阈值自动打开。多实例部署探测结果**经 Redis 广播**——任一实例打开熔断，其余实例 ≤1s 同步跳过该供应商 |
+| `TRUSTED_PROXIES` | **LB 后必须设为代理 CIDR**（如 `10.0.0.0/8`）。默认空时 `ClientIP` 取 TCP 对端——不设则 API Key 的 IP 白名单会把所有请求匹配到 LB 地址，白名单形同虚设 |
+| `JWT_SECRET` / `MASTER_KEY` | **所有实例必须完全一致**：前者保证任意实例可校验管理端 JWT，后者保证 API Key 密文（AES-GCM）可解密 |
+
+**各状态域跨实例一致性**
+
+- **全局一致（DB 承载）**：业务配置、配额（`used_value` 原子累加）、调用/操作审计、API Key/供应商/模型别名/限流规则、管理端 JWT（无状态，任一实例可校验）。
+- **全局一致（Redis 承载，需 `REDIS_ADDR`）**：速率限制（"100/min" 全局精确 429）、SLB 熔断打开状态、MFA 二步登录票据（LB 后任意实例可完成二步验证）。
+- **实例本地**：SWRR 轮询游标——每实例独立轮询，单实例内分发仍正确，仅全局分布略有偏差（可接受，无需会话亲和）。
+
+**配置热加载**：任一实例在管理后台变更配置 → DB `config_meta.counter` 递增 → 其余实例 ≤`hot_reload_seconds`（默认 3 秒）内自动重载快照；外部工具直改数据库同样生效（轮询兜底）。
+
+**降级语义**：Redis 不可达（启动探活失败或运行中故障）时自动降级为实例本地限流/熔断语义并打印告警日志，热路径不受阻塞；每 5 秒探活，恢复后自动切回分布式计数。降级期间限流按单实例口径计数（口径放宽），恢复后重新全局精确。
+
+**Docker Compose 多节点示例**（双网关 + PG + Redis；`REDIS_PASSWORD` 与实例变量需一致）：
+
+```yaml
+services:
+  gateway-a: &gateway
+    build: { context: ., dockerfile: Dockerfile }
+    ports: ["8080:8080"]
+    environment: &gateway-env
+      - DB_TYPE=postgres
+      - DB_DSN=postgres://gateway:secret@db:5432/gateway?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set-redis-password}
+      - JWT_SECRET=${JWT_SECRET:?set-jwt-secret}
+      - MASTER_KEY=${MASTER_KEY:?set-master-key}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?set-admin-password}
+    depends_on: [db, redis]
+  gateway-b:
+    <<: *gateway
+    ports: ["8081:8080"]
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=gateway
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=gateway
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set-redis-password}"]
+volumes:
+  pg-data:
+```
+
+> 前置 LB（Nginx/HAProxy/云 LB）轮询 `gateway-a:8080` / `gateway-b:8080`，探活 `GET /healthz`；LB 与网关间设置 `TRUSTED_PROXIES` 后客户端真实 IP 才会进入 API Key 的 IP 白名单判定。
+
+**多节点实测**：双实例（同机 18080/18082，PG 共库 + Redis）已验证——分布式限流全局 429、熔断跨实例 ≤1s 同步打开 + TTL 自动半开恢复、配置热载跨实例 ≤4s 传播、配额全局精确。可复跑脚本见 `deploy/`（`mn_redis.sh`、`mn_circuit.sh`、`multi_node_redis_test.py`、`multi_node_circuit_test.py`）。
 
 ## License
 
