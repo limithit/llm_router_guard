@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -146,6 +147,71 @@ func TestForwardStream_ShortOutputClean_NoFalsePositive(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), "[filtered]") {
 		t.Errorf("response should not contain replacement message; body:\n%s", w.Body.String())
+	}
+}
+
+// TestResolveRequestID 链路 ID 策略：合法入站头透传复用，缺失/超长则生成。
+func TestResolveRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mk := func(h string) *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request, _ = http.NewRequest("POST", "/v1/chat/completions", nil)
+		if h != "" {
+			c.Request.Header.Set("X-Request-ID", h)
+		}
+		return c
+	}
+	if got := resolveRequestID(mk("trace-abc-123")); got != "trace-abc-123" {
+		t.Errorf("inbound ID must be reused, got %q", got)
+	}
+	got := resolveRequestID(mk(""))
+	if len(got) != 32 { // 16 字节 hex
+		t.Errorf("missing header should generate 32-hex ID, got %q", got)
+	}
+	if got2 := resolveRequestID(mk("")); got2 == got {
+		t.Error("two generated IDs must differ")
+	}
+	long := strings.Repeat("x", 129)
+	if got = resolveRequestID(mk(long)); got == long || len(got) != 32 {
+		t.Errorf("over-length header (>128B) must be ignored, got %q", got)
+	}
+	if got = resolveRequestID(mk("   ")); len(got) != 32 {
+		t.Errorf("blank header should generate, got %q", got)
+	}
+}
+
+// TestForward_UpstreamReceivesRequestID 转发上游必须携带 X-Request-ID（P1 #1）。
+func TestForward_UpstreamReceivesRequestID(t *testing.T) {
+	s := newTestServer()
+	s.httpClient = &http.Client{Timeout: 5 * time.Second} // newTestServer 不带 httpClient
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest("POST", "/v1/chat/completions", nil)
+	c.Request.Header.Set("X-Request-ID", "trace-e2e-42")
+
+	var seen string
+	up := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Request-ID")
+		rw.Header().Set("Content-Type", "application/json")
+		_, _ = rw.Write([]byte(`{"id":"1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"hi"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer up.Close()
+
+	snap := &runtime.Snapshot{General: settings.General{DefaultTimeoutSeconds: 5}}
+	cr := &adapter.CanonicalRequest{Model: "gpt-4", Messages: []adapter.Message{{Role: "user", Content: "hi"}}}
+	ru := runtime.ResolvedUpstream{ProviderID: 1, ProviderName: "mock", Protocol: adapter.ProtoOpenAIChat,
+		UpstreamModel: "gpt-4", BaseURL: up.URL, APIKey: "k"}
+	ap := &auditParams{}
+
+	if fr := s.forward(c, snap, adapter.ProtoOpenAIChat, cr, ru, "trace-e2e-42", ap); fr != frDone {
+		t.Fatalf("forward result = %v, want frDone (errMsg=%s)", fr, ap.errMsg)
+	}
+	if seen != "trace-e2e-42" {
+		t.Errorf("upstream saw X-Request-ID = %q, want trace-e2e-42", seen)
+	}
+	if w.Header().Get("X-Request-ID") != "" {
+		t.Error("forward() itself should not set response header (Handle does)")
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/db"
 	"llmrouter/internal/gateway"
+	"llmrouter/internal/health"
 	"llmrouter/internal/metrics"
 	"llmrouter/internal/model"
 	"llmrouter/internal/quota"
@@ -72,6 +73,9 @@ func main() {
 	mgr.Start(ctx)
 	al.Start(ctx)
 	qm.StartBackground(ctx, rl)
+	// 上游健康检查（P1 #3）：周期探测启用供应商，失败经熔断计数累计（多实例时 Redis 广播）。
+	// HEALTH_CHECK_SECONDS=0 可禁用。
+	go health.New(gormDB, enc, bl).Run(ctx, time.Duration(cfg.HealthCheckSeconds)*time.Second)
 
 	// 首次引导管理员
 	bootstrapAdmin(gormDB, cfg)

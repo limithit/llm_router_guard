@@ -78,6 +78,15 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
+// resolveRequestID 链路追踪 ID：客户端带合法 X-Request-ID（≤128 字节）则透传复用
+// （跨服务同一 ID 贯穿），否则生成。响应头回带同值，转发上游时也携带。
+func resolveRequestID(c *gin.Context) string {
+	if v := strings.TrimSpace(c.GetHeader("X-Request-ID")); v != "" && len(v) <= 128 {
+		return v
+	}
+	return newRequestID()
+}
+
 // clientError 按客户端协议风格写错误响应。
 func clientError(c *gin.Context, proto adapter.Protocol, status int, msg, errType, code string) {
 	c.Data(status, "application/json", adapter.ErrorJSON(proto, status, msg, errType, code))
@@ -250,7 +259,9 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		snap := s.mgr.Get()
 		apiKey := c.MustGet("apikey").(*model.APIKey)
 		s.touchLastUsed(apiKey.ID)
-		reqID := newRequestID()
+		reqID := resolveRequestID(c)
+		// 响应回带：客户端收到响应后可凭此 ID 在审计（request_id 列）中定位本次调用
+		c.Header("X-Request-ID", reqID)
 
 		ap := auditParams{
 			requestID: reqID, start: start, keyID: apiKey.ID, keyLabel: apiKey.Name,
@@ -420,6 +431,8 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		s.bl.RecordFailure(up.ProviderID, snap.Failover, err.Error())
 		return frRetry
 	}
+	// 链路追踪透传（P1 #1）：上游可凭此头回查网关审计（call_logs.request_id）
+	req.Header.Set("X-Request-ID", reqID)
 	req = req.WithContext(ctx)
 
 	resp, err := s.httpClient.Do(req)

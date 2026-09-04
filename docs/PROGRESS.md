@@ -1,6 +1,37 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-04（第十轮：Redis 分布式限流/熔断/MFA 票据 — MySQL/PG 多节点完整支持）
+最后更新：2026-09-04（第十一轮：X-Request-ID 全链路透传 + protocol 枚举校验 + 上游健康检查定时任务）
+
+##  本轮迭代变更（第十一轮）
+
+### 新增：X-Request-ID 全链路透传（待办 P1 #1 ✅）
+- **入站复用**：客户端带合法 `X-Request-ID`（非空、≤128 字节）则透传复用（跨服务同一 ID 贯穿），
+  缺失/超长/空白则生成 32 位 hex（`gateway.resolveRequestID`）。
+- **三处落点**：响应头回带同值（客户端凭 ID 回查审计 `call_logs.request_id` 列）；
+  转发上游时 `req.Header.Set("X-Request-ID", ...)`（上游日志可关联网关审计）；
+  审计落库沿用既有 request_id 字段。
+- **实测**：入站 `trace-live-42` → 响应头原样回带 ✅；无头 → 生成新 ID ✅；
+  mock 上游收到同值 header ✅（单测 `TestForward_UpstreamReceivesRequestID` + `TestResolveRequestID`）。
+
+### 新增：供应商 protocol 枚举校验（第九轮实测遗留 ✅）
+- `createProvider` / `updateProvider` 校验 `protocol ∈ {openai_chat, openai_responses, anthropic}`
+  （`adapter` 常量，单一事实源），非法值 400「protocol 必须是 …」。
+- 此前错误值（如 `openai`）一路存库，直到转发时才 502 `unsupported upstream protocol`；
+  现在配置期即拦截。实测：`{"protocol":"openai"}` → HTTP 400 ✅，更新同理。
+
+### 新增：上游健康检查定时任务（待办 P1 #2/#3 ✅）
+- **新包** `internal/health`：`Checker.Run(ctx, interval)` 周期探测全部启用供应商
+  （`GET <base>/v1/models`，10s 超时，单轮有界并发 ≤8，启动即先探测一轮）。
+- **判据刻意宽松**：任何 HTTP 响应（含 401/403/404）= 端点可达 = `RecordSuccess`（清计数/清共享打开态）；
+  仅传输层错误（超时/DNS/连接拒绝）`RecordFailure` 累计——复用既有熔断阈值/重置逻辑，
+  **多实例部署自动经 Redis 广播**（第十轮机制，零额外代码）。
+- **开关**：`HEALTH_CHECK_SECONDS`（默认 30，0=禁用）。探测不进审计、不占配额。
+- **实测**（interval=5s）：死上游 5 轮后 `healthy=False fails=7`（阈值 5 触发）✅；
+  好上游全程 `healthy=True` ✅。
+- **单测**：可达即清熔断（401 也算健康）、传输失败累计到阈值开断、禁用供应商跳过、interval=0 直接返回。
+
+### 回归
+- 单测全绿（新增 8 个断言组）；MySQL + Redis + 健康检查器同开，20 步 E2E **20/20**。
 
 ##  本轮迭代变更（第十轮）
 
@@ -336,9 +367,9 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 | # | 任务 | 工作量 | 涉及文件 |
 |---|------|--------|---------|
-| 1 | X-Request-ID 转发给上游 | 小 | `gateway/gateway.go` |
+| 1 | ~~X-Request-ID 转发给上游~~ ✅ | — | **已完成**（2026-09-04 第十一轮：入站复用 + 响应回带 + 转发上游） |
 | 2 | ~~Token 估算精度提升 (tiktoken-go)~~ ✅ | — | **已完成**（2026-09-02） |
-| 3 | 上游健康检查定时任务 | 小 | 新 `runtime/health.go` 或 `slb/slb.go` |
+| 3 | ~~上游健康检查定时任务~~ ✅ | — | **已完成**（2026-09-04 第十一轮：`internal/health` + `HEALTH_CHECK_SECONDS`，联动熔断/Redis 广播） |
 | 4 | 前端路由懒加载 | 小 | `frontend/src/App.tsx` + 各 page |
 
 ### P2 — 后续迭代
@@ -423,9 +454,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
 2. ✅ 第十轮：Redis 分布式限流/熔断/MFA 票据 — mysql/pg 多节点完整支持，双实例实测通过
 3. ✅ 第九/十轮变更已提交（`7c4ddfa` / `72cd6b7` / `97421ab` / `e08a2db`）
-4. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
-5. ⏳ 供应商 protocol 枚举校验（第九轮实测发现，工作量小）
-6. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
-7. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
-8. ⏳ #17 多节点部署文档（README：REDIS_ADDR/REDIS_PASSWORD + 拓扑）
-9. 后续按 P2/Minor/DevOps 推进
+4. ✅ 第十一轮：X-Request-ID 透传 + protocol 枚举校验 + 上游健康检查（`hc_live.sh` 实测全过）
+5. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
+6. ⏳ #17 多节点部署文档（README：REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS + 拓扑）
+7. 后续按 P2/Minor/DevOps 推进

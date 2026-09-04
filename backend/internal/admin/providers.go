@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"llmrouter/internal/adapter"
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/model"
 )
@@ -19,6 +20,15 @@ import (
 type providerOut struct {
 	model.Provider
 	APIKey string `json:"-"` // 不输出明文
+}
+
+// validProtocol 校验供应商协议枚举（第九轮实测发现：错误值会一路存库，直到转发时才 502）。
+func validProtocol(p string) bool {
+	switch p {
+	case adapter.ProtoOpenAIChat, adapter.ProtoOpenAIResponses, adapter.ProtoAnthropic:
+		return true
+	}
+	return false
 }
 
 func (s *Server) listProviders(c *gin.Context) {
@@ -45,6 +55,10 @@ func (s *Server) createProvider(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" || req.BaseURL == "" {
 		s.fail(c, 400, 40001, "请填写供应商名称、协议类型与端点 URL")
+		return
+	}
+	if !validProtocol(req.Protocol) {
+		s.fail(c, 400, 40001, "protocol 必须是 openai_chat / openai_responses / anthropic 之一")
 		return
 	}
 	enc, err := s.enc.Encrypt(req.APIKey)
@@ -86,6 +100,10 @@ func (s *Server) updateProvider(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		s.fail(c, 400, 40001, "请求参数错误")
+		return
+	}
+	if !validProtocol(req.Protocol) {
+		s.fail(c, 400, 40001, "protocol 必须是 openai_chat / openai_responses / anthropic 之一")
 		return
 	}
 	before := p
