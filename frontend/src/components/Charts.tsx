@@ -1,11 +1,35 @@
 /**
- * 轻量自绘 SVG 图表（趋势折线图 / 环形占比图）。
- * 说明：为规避图表重型依赖（@ant-design/plots / echarts）带来的安装与构建不确定性，
- * 采用任务允许的降级方案 —— 自绘 SVG 简单趋势图，无额外运行时依赖。
+ * ECharts 图表封装（P2 #8）：趋势折线图 / 环形占比图。
+ * 组件 props 与旧自绘 SVG 版完全兼容（LineChart / DonutChart），页面零改动。
+ * 按需注册（echarts/core）：仅折线 + 饼图 + 网格/提示/图例/标题，控制打包体积；
+ * echarts 仅被懒加载页面（Dashboard / TokenStats）引用，随路由 chunk 按需加载。
  */
 import { useMemo } from 'react';
-import { Empty, Typography } from 'antd';
+import { Empty } from 'antd';
 import { useTranslation } from 'react-i18next';
+import * as echarts from 'echarts/core';
+import { LineChart as ELine, PieChart as EPie } from 'echarts/charts';
+import {
+  GridComponent,
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import ReactECharts from 'echarts-for-react/lib/core';
+import type { EChartsCoreOption } from 'echarts/core';
+
+echarts.use([ELine, EPie, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer]);
+
+const COLORS = ['#1677ff', '#ff4d4f'];
+const DONUT_COLORS = ['#1677ff', '#f5222d', '#faad14', '#52c41a', '#722ed1', '#13c2c2', '#eb2f96'];
+
+function NoData() {
+  const { t } = useTranslation();
+  return <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
+}
+
+// ---------- 折线趋势 ----------
 
 interface Point {
   label: string;
@@ -20,76 +44,63 @@ interface LineChartProps {
   height?: number;
 }
 
-const COLORS = ['#1677ff', '#ff4d4f'];
-
 export function LineChart({ data, seriesName, height = 240 }: LineChartProps) {
   const { t } = useTranslation();
   const names = seriesName ?? [t('charts.primarySeries'), t('charts.secondarySeries')];
-  const view = useMemo(() => {
-    if (!data.length) return null;
-    const pad = { l: 44, r: 16, t: 16, b: 28 };
-    const w = 640;
-    const h = height;
-    const innerW = w - pad.l - pad.r;
-    const innerH = h - pad.t - pad.b;
-    const maxV = Math.max(1, ...data.map((d) => Math.max(d.value, d.value2 ?? 0)));
-    const niceMax = Math.ceil(maxV * 1.15 / Math.pow(10, Math.floor(Math.log10(maxV)))) * Math.pow(10, Math.floor(Math.log10(maxV)));
-    const x = (i: number) => pad.l + (data.length === 1 ? innerW / 2 : (i * innerW) / (data.length - 1));
-    const y = (v: number) => pad.t + innerH - (v / niceMax) * innerH;
-    return { pad, w, h, innerW, innerH, niceMax, x, y };
-  }, [data, height]);
+  const hasSecond = data.some((d) => d.value2 !== undefined);
 
-  if (!view) {
-    return <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
-  }
+  const option = useMemo<EChartsCoreOption>(() => {
+    const series: Record<string, unknown>[] = [
+      {
+        name: names[0],
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: data.map((d) => d.value),
+        itemStyle: { color: COLORS[0] },
+        lineStyle: { color: COLORS[0], width: 2 },
+      },
+    ];
+    if (hasSecond) {
+      series.push({
+        name: names[1],
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        data: data.map((d) => d.value2 ?? 0),
+        itemStyle: { color: COLORS[1] },
+        lineStyle: { color: COLORS[1], width: 2, type: 'dashed' },
+      });
+    }
+    return {
+      animation: false,
+      grid: { left: 48, right: 16, top: 28, bottom: 28 },
+      tooltip: { trigger: 'axis' },
+      legend: hasSecond
+        ? { data: names, top: 0, textStyle: { fontSize: 12 } }
+        : { show: false },
+      xAxis: {
+        type: 'category',
+        data: data.map((d) => d.label),
+        axisLabel: { fontSize: 10, color: '#999' },
+        axisLine: { lineStyle: { color: '#e0e0e0' } },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { fontSize: 10, color: '#999' },
+        splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+      },
+      series,
+    };
+  }, [data, names, hasSecond]);
 
-  const { pad, w, h, niceMax, x, y } = view;
-  const gridLines = [0, 0.25, 0.5, 0.75, 1];
-
-  const pathFor = (key: 'value' | 'value2') => {
-    return data
-      .map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(d[key] ?? 0).toFixed(1)}`)
-      .join(' ');
-  };
-
-  return (
-    <div>
-      <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-        {gridLines.map((g) => {
-          const gy = pad.t + (h - pad.t - pad.b) * (1 - g);
-          return (
-            <g key={g}>
-              <line x1={pad.l} y1={gy} x2={w - pad.r} y2={gy} stroke="#f0f0f0" strokeDasharray="3 3" />
-              <text x={pad.l - 6} y={gy + 3} textAnchor="end" fontSize={10} fill="#999">
-                {Math.round(niceMax * g)}
-              </text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => (
-          <text key={d.label} x={x(i)} y={h - 6} textAnchor="middle" fontSize={10} fill="#999">
-            {d.label}
-          </text>
-        ))}
-        <path d={pathFor('value')} fill="none" stroke={COLORS[0]} strokeWidth={2} />
-        <path d={pathFor('value2')} fill="none" stroke={COLORS[1]} strokeWidth={2} strokeDasharray="4 2" />
-        {data.map((d, i) => (
-          <circle key={d.label} cx={x(i)} cy={y(d.value)} r={3} fill={COLORS[0]} />
-        ))}
-      </svg>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, fontSize: 12, color: '#666' }}>
-        <span>
-          <span style={{ color: COLORS[0] }}>●</span> {names[0]}
-        </span>
-        {data.some((d) => d.value2 !== undefined) && (
-          <span>
-            <span style={{ color: COLORS[1] }}>●</span> {names[1]}
-          </span>
-        )}
-      </div>
-    </div>
-  );
+  if (!data.length) return <NoData />;
+  return <ReactECharts echarts={echarts} option={option} notMerge lazyUpdate style={{ height, width: '100%' }} />;
 }
+
+// ---------- 环形占比 ----------
 
 interface DonutChartProps {
   data: { label: string; value: number }[];
@@ -97,68 +108,58 @@ interface DonutChartProps {
   centerText?: string;
 }
 
-const DONUT_COLORS = ['#1677ff', '#f5222d', '#faad14', '#52c41a', '#722ed1', '#13c2c2', '#eb2f96'];
-
 export function DonutChart({ data, height = 220, centerText }: DonutChartProps) {
   const { t } = useTranslation();
   const total = data.reduce((s, d) => s + d.value, 0);
 
-  if (!total || !data.length) {
-    return <Empty description={t('common.noData')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 16 }} />;
-  }
+  const option = useMemo<EChartsCoreOption>(() => {
+    const items = [...data].sort((a, b) => b.value - a.value);
+    return {
+      animation: false,
+      tooltip: { trigger: 'item', formatter: '{b}: {c}（{d}%）' },
+      legend: {
+        type: 'scroll',
+        orient: 'vertical',
+        right: 0,
+        top: 'middle',
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { fontSize: 12 },
+        formatter: (name: string) => {
+          const item = data.find((d) => d.label === name);
+          if (!item || !total) return name;
+          const pct = Math.round((item.value / total) * 1000) / 10;
+          return `${name}  ${pct}%`;
+        },
+      },
+      title: {
+        text: String(total),
+        subtext: centerText ?? t('charts.total'),
+        left: '31%',
+        top: '38%',
+        textAlign: 'center',
+        textStyle: { fontSize: 20, fontWeight: 600 },
+        subtextStyle: { fontSize: 11, color: '#999' },
+      },
+      series: [
+        {
+          name: centerText ?? t('charts.total'),
+          type: 'pie',
+          radius: ['55%', '78%'],
+          center: ['32%', '50%'],
+          avoidLabelOverlap: false,
+          label: { show: false },
+          labelLine: { show: false },
+          data: items.map((d, i) => ({
+            name: d.label,
+            value: d.value,
+            itemStyle: { color: DONUT_COLORS[i % DONUT_COLORS.length] },
+          })),
+        },
+      ],
+    };
+  }, [data, total, centerText, t]);
 
-  const r = 60;
-  const cx = 80;
-  const cy = height / 2;
-  const strokeW = 26;
-  const c = 2 * Math.PI * r;
-
-  let acc = 0;
-  const segments = data.map((d, i) => {
-    const frac = d.value / total;
-    const seg = { ...d, color: DONUT_COLORS[i % DONUT_COLORS.length], frac, start: acc, end: acc + frac };
-    acc += frac;
-    return seg;
-  });
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <svg width={cx * 2} height={height} style={{ display: 'block', flex: '0 0 auto' }}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f0f0f0" strokeWidth={strokeW} />
-        {segments.map((s) => (
-          <circle
-            key={s.label}
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={strokeW}
-            strokeDasharray={`${Math.max(0, (s.end - s.start) * c - 1.5)} ${c}`}
-            strokeDashoffset={-s.start * c}
-            transform={`rotate(-90 ${cx} ${cy})`}
-          />
-        ))}
-        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={20} fontWeight={600}>
-          {total}
-        </text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={11} fill="#999">
-          {centerText ?? t('charts.total')}
-        </text>
-      </svg>
-      <div style={{ flex: 1, minWidth: 140 }}>
-        {segments.map((s) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '3px 0' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, display: 'inline-block' }} />
-            <Typography.Text style={{ flex: 1, fontSize: 12 }} ellipsis>
-              {s.label}
-            </Typography.Text>
-            <Typography.Text style={{ fontSize: 12 }} type="secondary">
-              {Math.round(s.frac * 1000) / 10}%
-            </Typography.Text>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  if (!total || !data.length) return <NoData />;
+  return <ReactECharts echarts={echarts} option={option} notMerge lazyUpdate style={{ height, width: '100%' }} />;
 }
