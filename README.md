@@ -44,6 +44,7 @@ cd ..
 | `ADMIN_PASSWORD` | `admin123` | 首启密码（必须修改！）|
 | `DATA_DIR` | `./data` | 备份文件存放目录 |
 | `FRONTEND_DIST` | (auto-detect) | 前端构建产物目录 |
+| `TRUSTED_PROXIES` | (empty) | 可信反代 CIDR（逗号分隔）。默认空 → `ClientIP` 取 TCP 对端、不解析 `X-Forwarded-For`，防伪造 IP 绕过 API Key 的 IP 白名单；反代部署时设为代理 CIDR（如 `127.0.0.1/32,10.0.0.0/8`） |
 
 首次启动会自动创建 admin 用户（用户名可在 `ADMIN_USER` 中自定义），并在控制台打印默认密码。**请立即通过 Web 界面修改密码**。
 

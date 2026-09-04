@@ -5,21 +5,23 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	ListenPort    int
-	DBType        string // sqlite|postgres|mysql
-	DBDSN         string
-	JWTSecret     string
-	MasterKey     string // 供应商 API Key 加密主密钥
-	AdminUser     string // 首启引导管理员
-	AdminPassword string
-	FrontendDist  string // 前端构建产物目录（可选内嵌服务）
-	DataDir       string // 备份文件目录
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
+	ListenPort      int
+	DBType          string // sqlite|postgres|mysql
+	DBDSN           string
+	JWTSecret       string
+	MasterKey       string // 供应商 API Key 加密主密钥
+	AdminUser       string // 首启引导管理员
+	AdminPassword   string
+	FrontendDist    string // 前端构建产物目录（可选内嵌服务）
+	DataDir         string // 备份文件目录
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	TrustedProxies  []string // 可信反向代理 CIDR；空=不信任任何 X-Forwarded-For，ClientIP 取 TCP 对端
 }
 
 func getenv(k, def string) string {
@@ -27,6 +29,17 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// splitCSV 按逗号拆分并去空白/空项。
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func Load() *Config {
@@ -41,7 +54,8 @@ func Load() *Config {
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		FrontendDist:  getenv("FRONTEND_DIST", ""),
 		DataDir:       getenv("DATA_DIR", "./data"),
-		ReadTimeout:   90 * time.Second,
-		WriteTimeout:  0, // SSE 长连接不设总写超时，由逐请求 context 控制
+		ReadTimeout:    90 * time.Second,
+		WriteTimeout:   0, // SSE 长连接不设总写超时，由逐请求 context 控制
+		TrustedProxies: splitCSV(getenv("TRUSTED_PROXIES", "")),
 	}
 }

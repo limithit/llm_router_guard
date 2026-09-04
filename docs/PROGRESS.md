@@ -245,6 +245,12 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 8. **审计开关**: 总开关+采样率+仅错误模式；操作审计不可关
 9. **前端状态**: Zustand(轻量) + TanStack Query(服务端缓存)
 10. **测试策略**: 同目录 `_test.go`，标准 `testing` + 表驱动 + 基准；Snapshot 手工构建不依赖 DB（quota 例外用内存 SQLite）
+11. **安全加固（本轮）**:
+    - **可信代理**: `engine.SetTrustedProxies(cfg.TrustedProxies)`，默认空 → `c.ClientIP()` 取 TCP 对端，防伪造 `X-Forwarded-For` 绕过 API Key 的 IP 白名单；反代部署用 `TRUSTED_PROXIES` 指定代理 CIDR。
+    - **安全响应头**: `X-Content-Type-Options: nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy`，抑制 MIME 嗅探与点击劫持。
+    - **默认密钥告警**: 启动时若 `JWT_SECRET`/`MASTER_KEY` 仍为默认值打印 `[security] WARNING`（不阻断启动）。
+    - **上游拓扑不外泄**: 面向客户端的错误信息不再包含上游供应商名（审计 `UpstreamProvider` 列 + 服务端 `[upstream]` 日志仍保留，供管理员排查）。
+    - **JWT**: HS256 且 `Parse` 强制校验 `SigningMethodHMAC`（拒绝 `alg=none` / 算法混淆），`exp` 经 `tok.Valid` 校验。
 
 ---
 

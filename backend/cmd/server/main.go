@@ -72,13 +72,27 @@ func main() {
 
 	// 首次引导管理员
 	bootstrapAdmin(gormDB, cfg)
+	warnInsecureDefaults(cfg)
 
 	// Gin 路由
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	engine := gin.New()
+	// 仅信任配置内的反向代理；默认空 → 不解析 X-Forwarded-For，c.ClientIP() 取 TCP 对端，
+	// 防止客户端伪造 XFF 头绕过 API Key 的 IP 白名单。反代部署时设 TRUSTED_PROXIES=<代理 CIDR>。
+	if err := engine.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Printf("[security] set trusted proxies: %v", err)
+	}
 	engine.Use(gin.Recovery())
+	// 安全响应头：抑制 MIME 嗅探 / 点击劫持 / 引用泄漏。
+	engine.Use(func(c *gin.Context) {
+		h := c.Writer.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Next()
+	})
 	// 访问日志：方法/路径/状态/延迟/来源 IP，便于排查 404 等。
 	// 跳过静态资源与 SPA 回退（NoRoute 200）以降噪。
 	engine.Use(func(c *gin.Context) {
@@ -141,6 +155,16 @@ func bootstrapAdmin(gdb *gorm.DB, cfg *config.Config) {
 		log.Fatalf("create admin user: %v", err)
 	}
 	log.Printf("[bootstrap] created admin user: %s", cfg.AdminUser)
+}
+
+// warnInsecureDefaults 对使用默认密钥/弱默认值的部署给出醒目告警（不阻断启动）。
+func warnInsecureDefaults(cfg *config.Config) {
+	if cfg.JWTSecret == "change-me-jwt-secret" {
+		log.Println("[security] WARNING: JWT_SECRET is the default value — admin tokens are forgeable. Set a strong JWT_SECRET.")
+	}
+	if cfg.MasterKey == "llm-router-guard-master-key" {
+		log.Println("[security] WARNING: MASTER_KEY is the default value — provider API keys are encrypted with it. Set a strong MASTER_KEY (changing it later requires re-encrypting existing providers).")
+	}
 }
 
 func auditRetentionFn(gdb *gorm.DB) func() time.Duration {

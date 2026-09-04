@@ -418,7 +418,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		ap.errMsg = fmt.Sprintf("%s: %v", up.ProviderName, err)
+		ap.errMsg = err.Error() // 审计另有 UpstreamProvider 列；面向客户端的错误不泄漏上游名
 		log.Printf("[upstream] %s %s: %v", up.ProviderName, up.UpstreamModel, err)
 		s.bl.RecordFailure(up.ProviderID, snap.Failover, err.Error())
 		return frRetry
@@ -433,7 +433,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		msg := adapter.ExtractError(up.Protocol, body)
 		retryable := snap.Failover.Enabled && (resp.StatusCode >= 500 || containsInt(snap.Failover.TriggerStatusCodes, resp.StatusCode))
 		if retryable {
-			ap.errMsg = fmt.Sprintf("%s returned %d: %s", up.ProviderName, resp.StatusCode, msg)
+			ap.errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg)
 			log.Printf("[upstream] %s %s returned %d: %s", up.ProviderName, up.UpstreamModel, resp.StatusCode, msg)
 			s.bl.RecordFailure(up.ProviderID, snap.Failover, msg)
 			return frRetry
@@ -441,7 +441,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		ap.errMsg = msg
 		ap.status = "error"
 		clientError(c, clientProto, resp.StatusCode,
-			fmt.Sprintf("upstream %s returned %d: %s", up.ProviderName, resp.StatusCode, msg),
+			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, msg),
 			"upstream_error", "upstream_error")
 		return frFatal
 	}
