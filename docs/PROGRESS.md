@@ -307,8 +307,9 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | API Key/供应商/别名/限流规则 | ✅ 是 | 全 DB 存储 + 快照重载 | 共享 |
 | 管理后台 JWT | ✅ 是 | 无状态 HS256 | 任一实例可校验 |
 | **SLB 熔断器** | ❌ 否 | `slb.Balancer` 内存 map（单实例语义） | A 熔断 B 不知；需 Redis 共享（待办 #15） |
-| **速率限制** | ❌ 否 | `RateLimiter.windows` 内存滑动窗口 | "100/min" 在 N 实例下变 N×100；需 Redis（待办 #14） |
+| **速率限制** | ❌ 否 | `RateLimiter.windows` 内存滑动窗口 | "100/min" 在 N 实例下变 N×100；需 Redis（待办 #14，第九轮双实例实测证实） |
 | **SWRR 游标** | ❌ 否 | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确） |
+| **MFA 二步登录票据** | ❌ 否 | `auth.go` `pendingMFA` 内存 sync.Map | 两步请求经 LB 必须命中同一实例，否则 40103 票据失效；需会话粘滞或迁 Redis（第九轮补充发现） |
 
 **部署结论**：
 - 单节点：sqlite / pg / mysql 均可。
