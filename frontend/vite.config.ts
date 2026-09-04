@@ -21,5 +21,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1500,
+    // vendor 分层缓存：业务页(路由懒加载)频繁迭代，antd/react/i18n 稳定不变，
+    // 独立 chunk 后发版只使业务 chunk 失效，vendor 命中浏览器长缓存
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'zustand'],
+          antd: ['antd', '@ant-design/icons', 'dayjs'],
+          i18n: ['i18next', 'react-i18next'],
+        },
+      },
+    },
   },
 });

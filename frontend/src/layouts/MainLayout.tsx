@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Avatar, Breadcrumb, Dropdown, Layout, Menu, Space, Typography } from 'antd';
+import { Avatar, Breadcrumb, Dropdown, Layout, Menu, Space, Spin, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ApartmentOutlined,
@@ -264,7 +264,26 @@ export default function MainLayout() {
         </Sider>
         <Content style={{ padding: 16, background: '#f0f2f5', minWidth: 0 }}>
           <Breadcrumb style={{ marginBottom: 12 }} items={breadcrumbItems} />
-          <Outlet />
+          {/*
+            路由级代码分割（P1 #4）：Suspense 只包 Outlet —— 懒加载页面 chunk 加载期间
+            仅内容区显示 Spin，侧栏/顶栏保持挂载不闪；App.tsx 顶层另有全局兜底边界。
+          */}
+          <Suspense
+            fallback={
+              <div
+                style={{
+                  minHeight: 320,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Spin size="large" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </Content>
       </Layout>
     </Layout>
