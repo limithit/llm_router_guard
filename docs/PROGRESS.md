@@ -36,6 +36,15 @@
   直到网关转发才报 `unsupported upstream protocol "openai"`（502）。建议在 `createProvider/updateProvider`
   校验枚举 `openai_chat|openai_responses|anthropic`，把错误提前到管理面。
 
+### 多节点双实例实测（真实环境，PG 共库）
+- **环境**：同机双实例（18080/18082）共享 gateway_pg + 共享 mock 上游（`deploy/mn_do.sh` + `multi_node_test.py`）。
+- **结果 3/3**：
+  - **配置热加载跨实例传播 ✅**：实例 A 创建供应商/别名，实例 B 在 ≤4s 的 `config_meta.counter` 轮询内可见；
+  - **配额全局精确 ✅**：limit=2，A 消费 1 次 + B 消费 1 次均 200，第 3 次（经 B）429——`used_value` 走 DB 原子累加；
+  - **限流确认每实例独立 ✅（文档预期）**：A 打满 2/10s 后，第 3 次经 B 仍 200——证实待办 #14（Redis 全局限流）的必要性；
+  - 管理端 JWT 无状态，两实例各自登录可用。
+- **结论**：多实例横向部署（pg/mysql + 前置 LB）开箱可用；全局精确限流/熔断仍需 #14/#15。
+
 ### 实测工具链沉淀（`deploy/`，可在测试机 `/root/gateway-test/` 复跑）
 - `mockup.py`：OpenAI 兼容 mock 上游（/v1/models + 非流式/流式 chat，usage 固定值，可控触发输出违规）。
 - `e2e.py`：20 步 E2E（用法 `python3 e2e.py BASE_URL ADMIN_PASSWORD`，审计断言带异步落库轮询）。
@@ -304,6 +313,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 **部署结论**：
 - 单节点：sqlite / pg / mysql 均可。
 - 多节点（接受"熔断/限流每实例独立"）：pg/mysql 多实例 + 前置 LB；配置/配额/审计全局一致。
+  **双实例共库行为已于第九轮在真实环境实测验证**（`deploy/mn_do.sh`：热加载传播/配额全局/限流独立 三项 3/3）。
 - 多节点 + 全局精确限流/熔断：需接入 Redis（待办 #14/#15/#16）。
 
 ## 🔑 关键技术决策记录
