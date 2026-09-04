@@ -28,6 +28,13 @@ func max1(v int) int {
 
 // ---------- 速率限制：固定窗口计数器 ----------
 
+// Limiter 限流判定接口：内存版（*RateLimiter，单节点）与 Redis 分布式版
+// （*RedisLimiter，多节点）实现同一签名，部署形态决定注入哪个实现。
+type Limiter interface {
+	Allow(snap *runtime.Snapshot, apiKeyID uint, alias string) (bool, *model.RateLimitRule)
+	FlushHits()
+}
+
 type RateLimiter struct {
 	mu      sync.Mutex
 	windows map[string]*window // key = ruleID:apiKeyID:alias
@@ -234,7 +241,7 @@ func postWebhook(url string, payload any) {
 }
 
 // StartBackground 定时任务：过期配额重置 + 限流命中统计落库。
-func (qm *QuotaManager) StartBackground(ctx context.Context, rl *RateLimiter) {
+func (qm *QuotaManager) StartBackground(ctx context.Context, rl Limiter) {
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()

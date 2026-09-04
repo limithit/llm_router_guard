@@ -11,18 +11,18 @@ import (
 // ---------- 管理后台用户 & MFA (REQ-020~024) ----------
 
 type AdminUser struct {
-	ID           uint       `gorm:"primaryKey" json:"id"`
-	Username     string     `gorm:"uniqueIndex;size:64" json:"username"`
-	PasswordHash string     `gorm:"size:128" json:"-"`
-	MFASecret    string     `gorm:"size:128" json:"-"`      // TOTP base32 secret（未启用也暂存，待 enable）
-	MFAEnabled   bool       `json:"mfa_enabled"`
-	MFABoundAt   *time.Time `json:"mfa_bound_at,omitempty"`
-	RecoveryCodesJSON string `gorm:"type:text" json:"-"`    // sha256 后的恢复码 JSON 数组
-	FailedLogins int        `json:"-"`                      // 连续登录失败次数（含 MFA 错）
-	LockedUntil  *time.Time `json:"-"`                      // 锁定期
-	LastLoginAt  *time.Time `json:"last_login_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	Username          string     `gorm:"uniqueIndex;size:64" json:"username"`
+	PasswordHash      string     `gorm:"size:128" json:"-"`
+	MFASecret         string     `gorm:"size:128" json:"-"` // TOTP base32 secret（未启用也暂存，待 enable）
+	MFAEnabled        bool       `json:"mfa_enabled"`
+	MFABoundAt        *time.Time `json:"mfa_bound_at,omitempty"`
+	RecoveryCodesJSON string     `gorm:"type:text" json:"-"` // sha256 后的恢复码 JSON 数组
+	FailedLogins      int        `json:"-"`                  // 连续登录失败次数（含 MFA 错）
+	LockedUntil       *time.Time `json:"-"`                  // 锁定期
+	LastLoginAt       *time.Time `json:"last_login_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func (u *AdminUser) IsLocked() bool {
@@ -32,20 +32,20 @@ func (u *AdminUser) IsLocked() bool {
 // ---------- 网关 API Key (REQ-002) ----------
 
 type APIKey struct {
-	ID         uint       `gorm:"primaryKey" json:"id"`
-	Name       string     `gorm:"uniqueIndex;size:64" json:"name"`
-	KeyHash    string     `gorm:"size:64;index" json:"-"`   // sha256(hex)
-	KeyMasked  string     `gorm:"size:64" json:"key_masked"`
-	Remark     string     `gorm:"size:255" json:"remark"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Name      string `gorm:"uniqueIndex;size:64" json:"name"`
+	KeyHash   string `gorm:"size:64;index" json:"-"` // sha256(hex)
+	KeyMasked string `gorm:"size:64" json:"key_masked"`
+	Remark    string `gorm:"size:255" json:"remark"`
 	// AllowedModelsJSON: 允许的模型别名 JSON 数组；空=允许全部（默认）
 	AllowedModelsJSON string `gorm:"type:text" json:"allowed_models_json"`
 	// IPAllowlistJSON: IP/CIDR 白名单 JSON 数组；IPAllowlistEnabled=false 时忽略（默认放行）
-	IPAllowlistJSON   string `gorm:"type:text" json:"ip_allowlist_json"`
-	IPAllowlistEnabled bool  `json:"ip_allowlist_enabled"`
-	Enabled    bool       `json:"enabled"`
-	LastUsedAt *time.Time `json:"last_used_at"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	IPAllowlistJSON    string     `gorm:"type:text" json:"ip_allowlist_json"`
+	IPAllowlistEnabled bool       `json:"ip_allowlist_enabled"`
+	Enabled            bool       `json:"enabled"`
+	LastUsedAt         *time.Time `json:"last_used_at"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // AllowsModel 判断该 Key 是否被授权访问指定别名；空列表表示允许全部。
@@ -100,17 +100,17 @@ const (
 )
 
 type Provider struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"uniqueIndex;size:64" json:"name"`
-	Protocol  string    `gorm:"size:32" json:"protocol"`
-	BaseURL   string    `gorm:"size:255" json:"base_url"`
-	APIKeyEnc string    `gorm:"type:text" json:"-"` // AES-GCM 加密存储 (REQ-005 ④)
-	APIKey    string    `gorm:"-" json:"-"`         // 运行时内存明文（不入库）
-	APIKeyMasked string `gorm:"size:64" json:"api_key_masked"`
-	Enabled   bool      `json:"enabled"`
-	Remark    string    `gorm:"size:255" json:"remark"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	Name         string    `gorm:"uniqueIndex;size:64" json:"name"`
+	Protocol     string    `gorm:"size:32" json:"protocol"`
+	BaseURL      string    `gorm:"size:255" json:"base_url"`
+	APIKeyEnc    string    `gorm:"type:text" json:"-"` // AES-GCM 加密存储 (REQ-005 ④)
+	APIKey       string    `gorm:"-" json:"-"`         // 运行时内存明文（不入库）
+	APIKeyMasked string    `gorm:"size:64" json:"api_key_masked"`
+	Enabled      bool      `json:"enabled"`
+	Remark       string    `gorm:"size:255" json:"remark"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ---------- 模型别名与上游 (REQ-006) ----------
@@ -211,8 +211,8 @@ type SystemSetting struct {
 
 // KV key 常量
 const (
-	SetKeyGeneral    = "general"     // REQ-001
-	SetKeyFailover   = "failover"    // REQ-007
+	SetKeyGeneral    = "general"       // REQ-001
+	SetKeyFailover   = "failover"      // REQ-007
 	SetKeyOutputFilt = "output_filter" // REQ-011
 	SetKeyQuotaAlert = "quota_alerts"  // REQ-014
 	SetKeySecurity   = "security"      // REQ-020
@@ -224,8 +224,8 @@ const (
 type ConfigVersion struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	Version      string    `gorm:"size:32;index" json:"version"`
-	SnapshotJSON string    `json:"-"` // 全量配置快照，用于回滚（无 size 的 string 由 GORM 按方言映射：mysql=longtext / pg=text / sqlite=text）
-	Status       string    `gorm:"size:16" json:"status"`  // ok|error
+	SnapshotJSON string    `json:"-"`                     // 全量配置快照，用于回滚（无 size 的 string 由 GORM 按方言映射：mysql=longtext / pg=text / sqlite=text）
+	Status       string    `gorm:"size:16" json:"status"` // ok|error
 	Message      string    `gorm:"size:512" json:"message"`
 	CreatedAt    time.Time `json:"created_at"`
 }

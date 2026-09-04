@@ -37,7 +37,7 @@ type Server struct {
 	db         *gorm.DB
 	mgr        *runtime.Manager
 	bl         *slb.Balancer
-	rl         *quota.RateLimiter
+	rl         rateLimitAllow // 内存版 *quota.RateLimiter 或分布式 *quota.RedisLimiter
 	qm         *quota.QuotaManager
 	auditLog   *audit.Logger
 	mx         *metrics.Metrics
@@ -45,7 +45,13 @@ type Server struct {
 	lastUsed   sync.Map // apiKeyID -> unix seconds
 }
 
-func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, rl *quota.RateLimiter,
+// rateLimitAllow 限流判定接口：单机内存版与 Redis 分布式版实现同一签名，
+// 由部署形态（REDIS_ADDR 是否配置）决定注入哪个实现。
+type rateLimitAllow interface {
+	Allow(snap *runtime.Snapshot, apiKeyID uint, alias string) (bool, *model.RateLimitRule)
+}
+
+func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, rl rateLimitAllow,
 	qm *quota.QuotaManager, al *audit.Logger, mx *metrics.Metrics) *Server {
 	return &Server{
 		db: gdb, mgr: mgr, bl: bl, rl: rl, qm: qm, auditLog: al, mx: mx,
@@ -223,16 +229,16 @@ func (s *Server) writeLog(p auditParams) {
 }
 
 type auditParams struct {
-	requestID                                        string
-	start                                            time.Time
-	keyID                                            uint
-	keyLabel                                         string
-	proto                                            string
-	alias                                            string
-	upstreamProvider, upstreamModel                  string
-	input, output                                    string
-	promptTokens, completionTokens                   int
-	status, category, reason, errMsg, findings       string
+	requestID                                  string
+	start                                      time.Time
+	keyID                                      uint
+	keyLabel                                   string
+	proto                                      string
+	alias                                      string
+	upstreamProvider, upstreamModel            string
+	input, output                              string
+	promptTokens, completionTokens             int
+	status, category, reason, errMsg, findings string
 }
 
 // Handle 返回一个协议端点的 gin 处理器。

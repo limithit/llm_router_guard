@@ -102,8 +102,8 @@ func ParseUpstreamData(p Protocol, data string) UpstreamChunk {
 		return out
 	case ProtoOpenAIResponses:
 		var r struct {
-			Type   string `json:"type"`
-			Delta  string `json:"delta"`
+			Type     string `json:"type"`
+			Delta    string `json:"delta"`
 			Response *struct {
 				Usage *struct {
 					InputTokens  int `json:"input_tokens"`
@@ -208,8 +208,8 @@ func (s *SSEWriter) Finalize(usage Usage) error {
 	case ProtoAnthropic:
 		return s.raw("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
 			"event: message_delta\ndata: " + fmt.Sprintf(
-				`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":%d}}`,
-				usage.Completion) + "\n\n" +
+			`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":%d}}`,
+			usage.Completion) + "\n\n" +
 			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	case ProtoOpenAIResponses:
 		tj, _ := json.Marshal(map[string]any{"type": "response.completed", "response": map[string]any{
@@ -253,15 +253,15 @@ func BuildCompletionJSON(clientProto Protocol, resp *CanonicalResponse) []byte {
 		tj, _ := json.Marshal(resp.Content)
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "type": "message", "role": "assistant", "model": resp.Model,
-			"content": []any{map[string]any{"type": "text", "text": json.RawMessage(tj)}},
+			"content":     []any{map[string]any{"type": "text", "text": json.RawMessage(tj)}},
 			"stop_reason": resp.FinishReason,
-			"usage": map[string]any{"input_tokens": resp.Usage.Prompt, "output_tokens": resp.Usage.Completion}})
+			"usage":       map[string]any{"input_tokens": resp.Usage.Prompt, "output_tokens": resp.Usage.Completion}})
 		return b
 	case ProtoOpenAIResponses:
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "object": "response", "status": "completed", "model": resp.Model,
 			"output": []any{map[string]any{"type": "message", "id": "msg_" + resp.ID, "role": "assistant",
-				"status": "completed",
+				"status":  "completed",
 				"content": []any{map[string]any{"type": "output_text", "text": resp.Content, "annotations": []any{}}}}},
 			"usage": map[string]any{"input_tokens": resp.Usage.Prompt,
 				"output_tokens": resp.Usage.Completion, "total_tokens": resp.Usage.Prompt + resp.Usage.Completion}})
@@ -270,7 +270,7 @@ func BuildCompletionJSON(clientProto Protocol, resp *CanonicalResponse) []byte {
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "object": "chat.completion", "created": 0, "model": resp.Model,
 			"choices": []any{map[string]any{"index": 0,
-				"message": map[string]any{"role": "assistant", "content": resp.Content},
+				"message":       map[string]any{"role": "assistant", "content": resp.Content},
 				"finish_reason": resp.FinishReason}},
 			"usage": map[string]any{"prompt_tokens": resp.Usage.Prompt,
 				"completion_tokens": resp.Usage.Completion,

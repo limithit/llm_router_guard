@@ -8,12 +8,12 @@ import (
 )
 
 type userRow struct {
-	ID          uint       `json:"id"`
-	Username    string     `json:"username"`
-	MFAEnabled  bool       `json:"mfa_enabled"`
-	LastLoginAt *string    `json:"last_login_at"`
-	Locked      bool       `json:"locked"`
-	CreatedAt   *string    `json:"created_at,omitempty"`
+	ID          uint    `json:"id"`
+	Username    string  `json:"username"`
+	MFAEnabled  bool    `json:"mfa_enabled"`
+	LastLoginAt *string `json:"last_login_at"`
+	Locked      bool    `json:"locked"`
+	CreatedAt   *string `json:"created_at,omitempty"`
 }
 
 func (s *Server) listUsers(c *gin.Context) {

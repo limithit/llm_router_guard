@@ -11,11 +11,13 @@ Behavior driven by user message content:
   otherwise                   -> reply is echo(<content>)
 """
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = 18081
+PORT = int(os.environ.get("MOCK_PORT", "18081"))
+MODE = os.environ.get("MOCK_MODE", "good")  # good=正常回包; bad=chat 一律 500（熔断验证用）
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,6 +53,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
+        if MODE == "bad":
+            print("CHAT bad-500", flush=True)  # 供日志计数验证流量是否到达本 mock
+            self._json({"error": {"message": "mock upstream failure",
+                                  "type": "mock_error"}}, 500)
+            return
         model = body.get("model", "mock-small")
         content = ""
         for m in reversed(body.get("messages", [])):

@@ -58,10 +58,13 @@ func main() {
 	// 热加载运行时 + 其他组件
 	mgr := runtime.NewManager(gormDB, enc)
 	bl := slb.New()
-	rl := quota.NewRateLimiter(gormDB)
+	rl := rateLimiter(cfg, gormDB)
 	qm := quota.NewQuotaManager(gormDB)
 	mx := metrics.New()
 	al := audit.NewLogger(gormDB, auditRetentionFn(gormDB))
+	if _, distributed := rl.(*quota.RedisLimiter); distributed {
+		bl.SetRedis(cfg.RedisAddr, cfg.RedisPassword) // 熔断打开状态多实例共享
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -109,7 +112,7 @@ func main() {
 			c.Writer.Status(), c.Request.Method, path, time.Since(start), c.ClientIP())
 	})
 
-	adminServer := admin.New(gormDB, mgr, bl, mx, al, enc, cfg.JWTSecret, cfg.ListenPort)
+	adminServer := admin.New(gormDB, mgr, bl, mx, al, enc, cfg.JWTSecret, cfg.ListenPort, cfg.RedisAddr, cfg.RedisPassword)
 	gw := gateway.New(gormDB, mgr, bl, rl, qm, al, mx)
 
 	adminServer.Register(engine, gw)
@@ -165,6 +168,20 @@ func warnInsecureDefaults(cfg *config.Config) {
 	if cfg.MasterKey == "llm-router-guard-master-key" {
 		log.Println("[security] WARNING: MASTER_KEY is the default value — provider API keys are encrypted with it. Set a strong MASTER_KEY (changing it later requires re-encrypting existing providers).")
 	}
+}
+
+// rateLimiter 选择限流实现：Redis 配置且 DB 为 mysql/postgres（多节点部署）→
+// 分布式固定窗口（Redis 原子计数）；其余 → 实例内存版（单节点语义）。
+func rateLimiter(cfg *config.Config, gdb *gorm.DB) quota.Limiter {
+	if cfg.RedisAddr != "" {
+		switch strings.ToLower(cfg.DBType) {
+		case "mysql", "postgres", "postgresql":
+			return quota.NewRedisLimiter(cfg.RedisAddr, cfg.RedisPassword)
+		default:
+			log.Printf("[ratelimit] REDIS_ADDR set but DB_TYPE=%s is sqlite: per-instance limiter (sqlite is single-node)", cfg.DBType)
+		}
+	}
+	return quota.NewRateLimiter(gdb)
 }
 
 func auditRetentionFn(gdb *gorm.DB) func() time.Duration {

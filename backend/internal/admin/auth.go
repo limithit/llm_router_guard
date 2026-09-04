@@ -3,7 +3,6 @@ package admin
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,24 +14,7 @@ import (
 	"llmrouter/internal/settings"
 )
 
-// pendingMFA 存储 MFA 二步登录的临时票据（5 分钟有效）。
-type pendingMFA struct {
-	userID uint
-	expiry time.Time
-}
-
-// pendingSetup 存储自助绑定流程中生成的密钥（5 分钟有效）。
-type pendingSetup struct {
-	secret string
-	expiry time.Time
-}
-
-type mfaState struct {
-	login sync.Map // mfa_token(hex) -> pendingMFA
-	setup sync.Map // userID -> pendingSetup
-}
-
-func (s *Server) mfa() *mfaState { return &s.mfaStateInstance }
+func (s *Server) mfa() mfaStore { return s.mfaStateInstance }
 
 // ---- 登录 ----
 
@@ -62,12 +44,12 @@ func (s *Server) login(c *gin.Context) {
 
 	// MFA 二步验证（全局开关开启 且 用户已绑定）
 	if req.MFAToken != "" {
-		v, ok := s.mfa().login.LoadAndDelete(req.MFAToken)
-		if !ok || v.(pendingMFA).expiry.Before(time.Now()) {
+		uid, ok := s.mfa().PopLoginTicket(req.MFAToken)
+		if !ok {
 			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据已失效，请重新登录")
 			return
 		}
-		if v.(pendingMFA).userID != u.ID {
+		if uid != u.ID {
 			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据与用户不匹配")
 			return
 		}
@@ -104,7 +86,7 @@ func (s *Server) login(c *gin.Context) {
 	if sec.MFAEnabled && u.MFAEnabled {
 		if req.TotpCode == "" && req.RecoveryCode == "" {
 			token := crypto.RandomHex(16)
-			s.mfa().login.Store(token, pendingMFA{userID: u.ID, expiry: time.Now().Add(5 * time.Minute)})
+			s.mfa().SaveLoginTicket(token, u.ID)
 			s.ok(c, gin.H{"mfa_required": true, "mfa_token": token})
 			return
 		}
@@ -150,8 +132,8 @@ func (s *Server) issueLogin(c *gin.Context, u *model.AdminUser, sec settings.Sec
 	s.recordOp(c, "login", "auth", u.Username, nil, nil)
 	needBind := sec.MFAEnabled && sec.MFARequiredAll && !u.MFAEnabled
 	s.ok(c, gin.H{
-		"token": token,
-		"user":  gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled, "last_login_at": now},
+		"token":         token,
+		"user":          gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled, "last_login_at": now},
 		"need_bind_mfa": needBind,
 	})
 }
@@ -235,7 +217,7 @@ func (s *Server) mfaSetup(c *gin.Context) {
 		s.fail(c, http.StatusInternalServerError, 50001, "生成二维码失败")
 		return
 	}
-	s.mfa().setup.Store(uid, pendingSetup{secret: secret, expiry: time.Now().Add(5 * time.Minute)})
+	s.mfa().SaveSetupSecret(uid, secret)
 	s.ok(c, gin.H{"secret": secret, "otpauth_url": url, "qr_png_base64": qr})
 }
 
@@ -246,12 +228,11 @@ func (s *Server) mfaEnable(c *gin.Context) {
 		return
 	}
 	uid := userIDOf(c)
-	v, ok := s.mfa().setup.LoadAndDelete(uid)
-	if !ok || v.(pendingSetup).expiry.Before(time.Now()) {
+	secret, ok := s.mfa().PopSetupSecret(uid)
+	if !ok {
 		s.fail(c, http.StatusBadRequest, 40001, "绑定流程已过期，请重新开始")
 		return
 	}
-	secret := v.(pendingSetup).secret
 	if !validateTOTP(req.Code, secret) {
 		s.fail(c, http.StatusUnauthorized, 40103, "动态验证码错误")
 		return

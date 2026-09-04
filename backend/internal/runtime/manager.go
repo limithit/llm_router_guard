@@ -80,11 +80,11 @@ type Manager struct {
 	trigger chan struct{}
 	busy    atomic.Bool
 
-	mu       sync.Mutex
-	dbCount  int64 // 上次加载时 DB 中的 counter
-	Version  string
-	Status   string
-	Err      string
+	mu      sync.Mutex
+	dbCount int64 // 上次加载时 DB 中的 counter
+	Version string
+	Status  string
+	Err     string
 }
 
 func NewManager(gdb *gorm.DB, enc *crypto.Cipher) *Manager {
@@ -96,7 +96,7 @@ func NewManager(gdb *gorm.DB, enc *crypto.Cipher) *Manager {
 func emptySnapshot() *Snapshot {
 	return &Snapshot{
 		Version: "-", LoadedAt: time.Now(),
-		Counts: map[string]int{},
+		Counts:    map[string]int{},
 		Providers: map[uint]*model.Provider{}, ProviderByName: map[string]*model.Provider{},
 		Aliases: map[string][]ResolvedUpstream{}, APIKeys: map[string]*model.APIKey{},
 		General: settings.DefaultGeneral(), Failover: settings.DefaultFailover(),
@@ -393,10 +393,10 @@ func (m *Manager) logLoad(module, status, msg string) {
 
 // StatusInfo 供配置状态页展示（REQ-004A）。
 type StatusInfo struct {
-	Version      string    `json:"version"`
-	LastLoadedAt time.Time `json:"last_loaded_at"`
-	Status       string    `json:"status"`
-	ErrMessage   string    `json:"error_message"`
+	Version      string         `json:"version"`
+	LastLoadedAt time.Time      `json:"last_loaded_at"`
+	Status       string         `json:"status"`
+	ErrMessage   string         `json:"error_message"`
 	Modules      map[string]int `json:"modules"`
 }
 

@@ -1,6 +1,79 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-04（第九轮：MySQL/PostgreSQL 连库实测 + 两个跨库 bug 修复）
+最后更新：2026-09-04（第十轮：Redis 分布式限流/熔断/MFA 票据 — MySQL/PG 多节点完整支持）
+
+##  本轮迭代变更（第十轮）
+
+### 新增：Redis 分布式限流（待办 #14 ✅）
+- **新文件** `internal/quota/redis_limiter.go`：固定窗口键 `gw:rl:v1:<ruleID>:<apiKeyID>:<alias>`，
+  Lua 脚本原子 `INCR + 首次 PEXPIRE`（TTL=窗口秒数，只在计数=1 时设置，窗口不漂移），N 实例共享精确计数。
+- **接口化**：`quota.Limiter`（Allow/FlushHits）——内存版 `*RateLimiter`（单节点/sqlite）与
+  分布式版 `*RedisLimiter`（mysql/postgres + `REDIS_ADDR`）实现同一签名；gateway 通过接口注入，单测零改动。
+- **降级**：启动探活失败或运行中 Redis 故障 → 自动降级本地内存限流（单实例语义）+ 告警日志，
+  每 5s 探活恢复后自动切回分布式；热路径超时 ≤400ms，Redis 故障不拖死网关。
+- **单测**（miniredis）：双实例共享计数交替打满双向 429、窗口过期恢复、Redis 不可用降级本地仍有效。
+
+### 新增：Redis 共享熔断打开状态（待办 #15 ✅）
+- **方案**（`internal/slb/slb.go`）：失败计数留实例本地；熔断**打开事件**广播 Redis
+  `SETEX gw:cb:v1:<providerID> = openUntil(ms)`，TTL=熔断重置秒数 → 到期键消失即自动半开；
+  成功恢复 `DEL` 共享键。判定侧节流读共享状态（≤1 次/秒/供应商，热路径零额外压力）——
+  任一实例打开熔断，其余实例 ≤1s 同步跳过该供应商。
+- **修复**：`HealthList` 对"本实例无本地 breaker"的供应商直接读共享状态，
+  运行状态页能如实反映他实例打开的熔断（此前只查本地 map，跨实例打开状态在状态页不可见）。
+- **降级**：同限流，Redis 故障自动退化单实例语义，恢复自动切回。
+
+### 新增：MFA 二步登录票据 / 绑定密钥 Redis 化（矩阵补充项 ✅）
+- **新文件** `internal/admin/redis_mfa.go`：`mfaStore` 接口（内存 memMFA / Redis redisMFA）。
+  票据键 `gw:mfa:login:v1:<token>`、绑定键 `gw:mfa:setup:v1:<uid>`，TTL 5 分钟，
+  Lua `GET+DEL` 原子核销——LB 后任意实例写入、任意实例可完成二步验证。
+- `admin.New` 增加 `redisAddr/redisPassword` 参数；Redis 不可达自动回退内存（不阻断启动）。
+
+### 部署开关
+- **环境变量**：`REDIS_ADDR`（host:port）+ `REDIS_PASSWORD`（可选）。
+- **规则**：sqlite 模式忽略 Redis（单节点零依赖，保持不变）；mysql/postgres + REDIS_ADDR
+  → 限流/熔断/MFA 票据全部分布式。`/status` 无新字段，启动日志打印各组件启用状态
+  （`[ratelimit]|[slb]|[mfa] redis ... connected: ... ENABLED/cluster-wide`）。
+- SWRR 游标按实例本地（待办 #16，可选：轮询分布略有差异但每实例内仍正确，不阻塞多节点）。
+
+### 多节点实测（真实环境，PG + Redis 共享，双实例 18080/18082）
+- **分布式限流 ✅**：A 打满 2/10s → 经 B 429、再经 A 仍 429（全局计数）；TTL 过期后恢复 200。
+- **熔断跨实例共享 ✅**：A 对坏上游（500×2）打开熔断（失败全部故障转移到好上游，客户端全 200）；
+  B 本地 fail_count=0 却在 ≤1s 内看到该上游 unhealthy 并把流量全部路由到好上游；
+  8s 重置窗口过后自动半开恢复。
+- **MFA 票据跨实例**：实现层完成（Redis GET+DEL 任意实例核销）；未单独 E2E（需 TOTP 真实绑定流程）。
+- **单实例回归 ✅**：MySQL + Redis 模式完整 20 步 E2E 20/20。
+- **配置热加载跨实例 ✅**（第十轮复测，同第九轮）。
+- 测试脚本：`deploy/mn_redis.sh`（限流）、`deploy/mn_circuit.sh`（熔断，good+bad 双 mock）、
+  `deploy/multi_node_redis_test.py`、`deploy/multi_node_circuit_test.py`。
+
+### 多节点能力矩阵（第十轮后）
+
+| 状态域 | 是否跨实例一致 | 机制 | 多节点表现 |
+|--------|--------------|------|------------|
+| 配置热加载 | ✅ 是 | `Bump()` 递增 `config_meta.counter` + 每 `HotReloadSeconds` 轮询 | 一实例改配置，其余 ≤3s 内重载 |
+| 配额（quota） | ✅ 是 | `Consume` 走 DB `UPDATE used_value + delta` | 全局精确 |
+| 调用审计 | ✅ 是 | 异步批量写 DB | 共享 |
+| API Key/供应商/别名/限流规则 | ✅ 是 | 全 DB 存储 + 快照重载 | 共享 |
+| 管理后台 JWT | ✅ 是 | 无状态 HS256 | 任一实例可校验 |
+| **速率限制** | ✅ 是（第十轮） | Redis 原子 INCR+PEXPIRE（`REDIS_ADDR`）| "100/min" 全局精确；故障降级单实例 |
+| **SLB 熔断器** | ✅ 是（第十轮） | 打开事件 SETEX 广播 + TTL 自动半开 | 任一实例打开，全体 ≤1s 跳过 |
+| **MFA 二步票据** | ✅ 是（第十轮） | Redis SET/GET+DEL + TTL 5min | LB 任意实例完成二步验证 |
+| **SWRR 游标** | ❌ 否（保持） | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确；待办 #16 可选） |
+
+**部署结论（更新）**：
+- 单节点：sqlite / pg / mysql 均可，无需 Redis。
+- 多节点：pg/mysql + `REDIS_ADDR`（+ `REDIS_PASSWORD`）→ 限流/熔断/MFA 全部跨实例一致，已实测。
+- 仅剩 SWRR 游标实例本地（轮询分布差异，可选优化 #16）。
+
+### 踩坑记录（第十轮）
+- **测试机 Redis 带 `requirepass`**：三组件启动即 `NOAUTH` 降级（降级逻辑按设计工作并如实告警）——
+  部署带密码的 Redis 必须配 `REDIS_PASSWORD`。
+- **二进制被运行中进程占用（ETXTBSY）**：Linux 上 scp 覆盖运行中的二进制会失败，
+  先停进程再上传；`run_server.sh` 的 fuser 释放端口逻辑顺带解决了进程残留。
+- **SWRR+故障转移的双上游熔断观测**：坏上游 500 → 网关静默重试好上游（客户端只见 200），
+  失败计数照常累计到阈值；观测跨实例共享必须用"读运行状态 API"而非客户端状态码。
+- **HealthList 只查本地 map**：跨实例共享状态要在该接口显式回退读 Redis，否则状态页对
+  "从未路由过该供应商"的实例永远显示 healthy。
 
 ##  本轮迭代变更（第九轮）
 
@@ -290,14 +363,15 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 | # | 任务 | 描述 |
 |---|------|------|
-| 14 | Redis 全局速率限制 | 把 `RateLimiter.windows` 内存滑动窗口迁到 Redis（滑动窗口 Lua），多实例下限流精确 |
-| 15 | Redis 全局熔断状态 | `slb.Balancer.breakers` 迁到 Redis 或定时同步，多实例共享熔断开关 |
+| 14 | ~~Redis 全局速率限制~~ ✅ | **已完成**（2026-09-04 第十轮：固定窗口 Lua 原子计数 + 故障降级，双实例实测全局 429） |
+| 15 | ~~Redis 全局熔断状态~~ ✅ | **已完成**（2026-09-04 第十轮：打开事件 SETEX 广播 + TTL 半开，双实例实测 ≤1s 同步） |
 | 16 | SWRR 全局游标（可选） | 别名轮询游标迁 Redis；或按实例一致性哈希分片，避免多实例各自轮询导致的分布偏差 |
-| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明 |
+| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明（含 REDIS_ADDR/REDIS_PASSWORD 说明） |
 
-## 🌐 多节点能力矩阵（当前状态）
+## 🌐 多节点能力矩阵（第十轮后）
 
 > SQLite = 单节点（文件锁、`MaxOpenConns=1`）；以下针对 **Postgres/MySQL** 多实例。
+> 最新矩阵见本文档顶部「本轮迭代变更（第十轮）」，此处为历史记录存档。
 
 | 状态域 | 是否跨实例一致 | 机制 | 多节点表现 |
 |--------|--------------|------|------------|
@@ -306,16 +380,16 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 调用审计 | ✅ 是 | 异步批量写 DB | 共享 |
 | API Key/供应商/别名/限流规则 | ✅ 是 | 全 DB 存储 + 快照重载 | 共享 |
 | 管理后台 JWT | ✅ 是 | 无状态 HS256 | 任一实例可校验 |
-| **SLB 熔断器** | ❌ 否 | `slb.Balancer` 内存 map（单实例语义） | A 熔断 B 不知；需 Redis 共享（待办 #15） |
-| **速率限制** | ❌ 否 | `RateLimiter.windows` 内存滑动窗口 | "100/min" 在 N 实例下变 N×100；需 Redis（待办 #14，第九轮双实例实测证实） |
-| **SWRR 游标** | ❌ 否 | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确） |
-| **MFA 二步登录票据** | ❌ 否 | `auth.go` `pendingMFA` 内存 sync.Map | 两步请求经 LB 必须命中同一实例，否则 40103 票据失效；需会话粘滞或迁 Redis（第九轮补充发现） |
+| **速率限制** | ✅ 是（第十轮） | Redis 原子 INCR+PEXPIRE（`REDIS_ADDR`，故障自动降级本地） | "100/min" 全局精确（双实例实测） |
+| **SLB 熔断器** | ✅ 是（第十轮） | 打开事件 Redis SETEX 广播 + TTL 自动半开（故障降级） | 任一实例打开，全体 ≤1s 跳过（双实例实测） |
+| **MFA 二步登录票据** | ✅ 是（第十轮） | Redis SET/GET+DEL + TTL 5min（不可达回退内存） | LB 任意实例完成二步验证 |
+| **SWRR 游标** | ❌ 否（保持） | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确；待办 #16 可选） |
 
 **部署结论**：
-- 单节点：sqlite / pg / mysql 均可。
-- 多节点（接受"熔断/限流每实例独立"）：pg/mysql 多实例 + 前置 LB；配置/配额/审计全局一致。
-  **双实例共库行为已于第九轮在真实环境实测验证**（`deploy/mn_do.sh`：热加载传播/配额全局/限流独立 三项 3/3）。
-- 多节点 + 全局精确限流/熔断：需接入 Redis（待办 #14/#15/#16）。
+- 单节点：sqlite / pg / mysql 均可，无需 Redis。
+- 多节点：pg/mysql 多实例 + 前置 LB + `REDIS_ADDR`（+`REDIS_PASSWORD`）→ 限流/熔断/MFA 全部跨实例一致
+  （第十轮双实例实测：分布式限流 429 全局生效、熔断跨实例 ≤1s 同步、半开自动恢复）。
+- SWRR 游标实例本地（可选优化 #16）；#14/#15 已完成。
 
 ## 🔑 关键技术决策记录
 
@@ -341,9 +415,11 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 **下一步行动**:
 1. ✅ 第九轮：MySQL/PG 连库实测 — 全链路 20/20 通过，两个阻断级跨库 bug 已修
-2. ⏳ 提交第九轮变更（settings.go / model.go / deploy/ / 本文档）
-3. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
-4. ⏳ 供应商 protocol 枚举校验（本轮实测发现，工作量小）
-5. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
-6. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
-7. 后续按 P2/Minor/DevOps 推进
+2. ✅ 第十轮：Redis 分布式限流/熔断/MFA 票据 — mysql/pg 多节点完整支持，双实例实测通过
+3. ⏳ 提交第九/十轮变更
+4. ⏳ P1 #1: X-Request-ID 转发（最小工作量，建议先做）
+5. ⏳ 供应商 protocol 枚举校验（第九轮实测发现，工作量小）
+6. ⏳ P1 #3: 上游健康检查定时任务（提升 SLB 可用性）
+7. ⏳ P1 #4: 前端路由懒加载（减小首屏体积）
+8. ⏳ #17 多节点部署文档（README：REDIS_ADDR/REDIS_PASSWORD + 拓扑）
+9. 后续按 P2/Minor/DevOps 推进

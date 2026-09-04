@@ -93,13 +93,13 @@ func parseOpenAIChat(body []byte) (*CanonicalRequest, error) {
 
 func parseResponses(body []byte) (*CanonicalRequest, error) {
 	var raw struct {
-		Model       string          `json:"model"`
-		Input       json.RawMessage `json:"input"`
-		Instructions string         `json:"instructions"`
-		Stream      bool            `json:"stream"`
-		MaxTokens   int             `json:"max_output_tokens"`
-		Temperature *float64        `json:"temperature"`
-		TopP        *float64        `json:"top_p"`
+		Model        string          `json:"model"`
+		Input        json.RawMessage `json:"input"`
+		Instructions string          `json:"instructions"`
+		Stream       bool            `json:"stream"`
+		MaxTokens    int             `json:"max_output_tokens"`
+		Temperature  *float64        `json:"temperature"`
+		TopP         *float64        `json:"top_p"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid JSON body: %w", err)
@@ -140,16 +140,16 @@ func parseResponses(body []byte) (*CanonicalRequest, error) {
 
 func parseAnthropic(body []byte) (*CanonicalRequest, error) {
 	var raw struct {
-		Model       string    `json:"model"`
-		System      json.RawMessage `json:"system"`
-		Messages    []struct {
+		Model    string          `json:"model"`
+		System   json.RawMessage `json:"system"`
+		Messages []struct {
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
-		Stream      bool      `json:"stream"`
-		MaxTokens   int       `json:"max_tokens"`
-		Temperature *float64  `json:"temperature"`
-		TopP        *float64  `json:"top_p"`
+		Stream      bool     `json:"stream"`
+		MaxTokens   int      `json:"max_tokens"`
+		Temperature *float64 `json:"temperature"`
+		TopP        *float64 `json:"top_p"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid JSON body: %w", err)
@@ -451,8 +451,7 @@ func ErrorJSON(clientProto Protocol, httpStatus int, message, errType, code stri
 			"error": map[string]any{"type": errType, "message": message}})
 		return b
 	default: // openai_chat / openai_responses
-		b, _ := json.Marshal(map[string]any{"error":
-			map[string]any{"message": message, "type": errType, "code": code}})
+		b, _ := json.Marshal(map[string]any{"error": map[string]any{"message": message, "type": errType, "code": code}})
 		return b
 	}
 }

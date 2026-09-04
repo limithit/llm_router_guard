@@ -21,21 +21,21 @@ import (
 )
 
 type Server struct {
-	db     *gorm.DB
-	mgr    *runtime.Manager
-	bl     *slb.Balancer
-	mx     *metrics.Metrics
-	al     *audit.Logger
-	enc    *crypto.Cipher
-	secret string
-	port   int
-	mfaStateInstance mfaState
+	db               *gorm.DB
+	mgr              *runtime.Manager
+	bl               *slb.Balancer
+	mx               *metrics.Metrics
+	al               *audit.Logger
+	enc              *crypto.Cipher
+	secret           string
+	port             int
+	mfaStateInstance mfaStore // 内存（单节点）或 Redis（多节点），见 redis_mfa.go
 }
 
 func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, mx *metrics.Metrics,
-	al *audit.Logger, enc *crypto.Cipher, jwtSecret string, listenPort int) *Server {
+	al *audit.Logger, enc *crypto.Cipher, jwtSecret string, listenPort int, redisAddr, redisPassword string) *Server {
 	return &Server{db: gdb, mgr: mgr, bl: bl, mx: mx, al: al, enc: enc,
-		secret: jwtSecret, port: listenPort}
+		secret: jwtSecret, port: listenPort, mfaStateInstance: newMFAStore(redisAddr, redisPassword)}
 }
 
 // userIDOf 从 JWT 中间件写入的 context 取当前管理员 ID。

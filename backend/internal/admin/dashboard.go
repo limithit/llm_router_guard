@@ -90,7 +90,7 @@ func (s *Server) dashboard(c *gin.Context) {
 		"today": gin.H{
 			"calls": todayCalls, "success": todaySuccess,
 			"blocked": todayBlocked, "errors": todayErrors, "avg_latency_ms": avgLat},
-		"trend_7d":        trend,
+		"trend_7d": trend,
 		"top_models": func() []gin.H {
 			out := make([]gin.H, 0, len(top))
 			for _, t := range top {
@@ -130,7 +130,7 @@ func (s *Server) status(c *gin.Context) {
 	runtime.ReadMemStats(&ms)
 	s.ok(c, gin.H{
 		"running": true, "uptime_seconds": int64(s.mx.Uptime().Seconds()),
-		"version": "1.0.0",
+		"version":         "1.0.0",
 		"memory_alloc_kb": ms.Alloc / 1024, "cpu_percent": 0.0,
 		"goroutines": runtime.NumGoroutine(), "open_connections": s.mx.Conns(),
 		"upstreams":     ups,

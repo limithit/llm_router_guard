@@ -14,16 +14,16 @@ import (
 
 // ConfigBundle 可序列化的全量配置（密钥保持 DB 原样密文，跨版本/备份一致）。
 type ConfigBundle struct {
-	Providers   []model.Provider      `json:"providers"`
-	Aliases     []model.ModelAlias    `json:"aliases"`
-	Keywords    []model.GuardKeyword  `json:"keywords"`
-	PIIRules    []model.PIIRule       `json:"pii_rules"`
-	Injection   []model.InjectionRule `json:"injection_rules"`
-	Quotas      []model.Quota         `json:"quotas"`
-	RateLimits  []model.RateLimitRule `json:"rate_limits"`
-	APIKeys     []model.APIKey        `json:"api_keys"`
-	Settings    map[string]string     `json:"settings"`
-	ExportedAt  time.Time             `json:"exported_at"`
+	Providers  []model.Provider      `json:"providers"`
+	Aliases    []model.ModelAlias    `json:"aliases"`
+	Keywords   []model.GuardKeyword  `json:"keywords"`
+	PIIRules   []model.PIIRule       `json:"pii_rules"`
+	Injection  []model.InjectionRule `json:"injection_rules"`
+	Quotas     []model.Quota         `json:"quotas"`
+	RateLimits []model.RateLimitRule `json:"rate_limits"`
+	APIKeys    []model.APIKey        `json:"api_keys"`
+	Settings   map[string]string     `json:"settings"`
+	ExportedAt time.Time             `json:"exported_at"`
 }
 
 // ExportBundle 从数据库导出全量配置。

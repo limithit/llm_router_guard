@@ -13,14 +13,14 @@ import (
 
 func makeSnap(keywords []model.GuardKeyword, piiRules []model.PIIRule, injections []model.InjectionRule, general ...settings.General) *runtime.Snapshot {
 	snap := &runtime.Snapshot{
-		Version:  "test",
-		Counts:   map[string]int{},
-		Providers: map[uint]*model.Provider{},
+		Version:        "test",
+		Counts:         map[string]int{},
+		Providers:      map[uint]*model.Provider{},
 		ProviderByName: map[string]*model.Provider{},
-		Aliases:  map[string][]runtime.ResolvedUpstream{},
-		APIKeys:  map[string]*model.APIKey{},
-		Quotas:   []model.Quota{},
-		RateLimits: []model.RateLimitRule{},
+		Aliases:        map[string][]runtime.ResolvedUpstream{},
+		APIKeys:        map[string]*model.APIKey{},
+		Quotas:         []model.Quota{},
+		RateLimits:     []model.RateLimitRule{},
 	}
 
 	if len(general) > 0 {
@@ -72,9 +72,9 @@ func TestCheckInput_KeywordContains(t *testing.T) {
 	}, nil, nil)
 
 	tests := []struct {
-		name    string
-		input   string
-		blocked bool
+		name     string
+		input    string
+		blocked  bool
 		findings int
 	}{
 		{"clean input", "这是一条正常消息", false, 0},
@@ -107,7 +107,7 @@ func TestCheckInput_KeywordExact(t *testing.T) {
 		blocked bool
 	}{
 		{"敏感词", true},
-		{" 敏感词 ", true}, // trimmed
+		{" 敏感词 ", true},     // trimmed
 		{"包含敏感词的内容", false}, // not exact
 		{"敏感", false},
 	}
@@ -262,10 +262,10 @@ func TestCheckOutput_PIIMask(t *testing.T) {
 
 func TestApplyOutputStrategy(t *testing.T) {
 	tests := []struct {
-		name     string
-		strategy string
-		vd       Verdict
-		wantText string
+		name      string
+		strategy  string
+		vd        Verdict
+		wantText  string
 		wantBlock bool
 	}{
 		{"not blocked", "replace", Verdict{Blocked: false, Text: "正常内容"}, "正常内容", false},
@@ -323,11 +323,11 @@ func TestCheckInput_FullPipeline(t *testing.T) {
 	)
 
 	tests := []struct {
-		name    string
-		input   string
-		blocked bool
+		name     string
+		input    string
+		blocked  bool
 		findings int
-		masked  bool
+		masked   bool
 	}{
 		{"clean", "正常消息", false, 0, false},
 		{"keyword hit", "包含敏感词", true, 1, false},

@@ -39,11 +39,11 @@ type ErrorEvent struct {
 }
 
 type Metrics struct {
-	mu       sync.Mutex
-	stats    map[string]*ModelStat
-	recent   []ErrorEvent
-	conns    int64
-	start    time.Time
+	mu           sync.Mutex
+	stats        map[string]*ModelStat
+	recent       []ErrorEvent
+	conns        int64
+	start        time.Time
 	todayCalls   int64
 	todayBlocked int64
 }
@@ -79,9 +79,9 @@ func (mt *Metrics) RecordError(requestID, msg string) {
 }
 
 type QPSInfo struct {
-	Model   string  `json:"model"`
-	QPS     float64 `json:"qps"`
-	Errs1m  int64   `json:"errors_1m"`
+	Model  string  `json:"model"`
+	QPS    float64 `json:"qps"`
+	Errs1m int64   `json:"errors_1m"`
 }
 
 func (mt *Metrics) QPS() []QPSInfo {

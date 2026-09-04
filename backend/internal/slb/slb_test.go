@@ -21,8 +21,8 @@ func makeUpstreams() []runtime.ResolvedUpstream {
 
 func makeSnap() *runtime.Snapshot {
 	return &runtime.Snapshot{
-		Version:        "test",
-		Counts:         map[string]int{},
+		Version: "test",
+		Counts:  map[string]int{},
 		Providers: map[uint]*model.Provider{
 			1: {ID: 1, Name: "openai-1", Protocol: model.ProtoOpenAIChat},
 			2: {ID: 2, Name: "openai-2", Protocol: model.ProtoOpenAIChat},
@@ -215,7 +215,7 @@ func TestCircuitBreaker_ResetsAfterTimeout(t *testing.T) {
 
 	// Provider 1 should be available again (circuit reset)
 	b := bl.br(1)
-	if !b.healthy() {
+	if !bl.healthy(b, 1) {
 		t.Error("Circuit should have reset after timeout")
 	}
 }
