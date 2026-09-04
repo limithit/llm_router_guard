@@ -346,11 +346,11 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 | # | 优先级 | 位置 | 问题 | 建议 |
 |---|--------|------|------|------|
-| 1 | P1 | `gateway/gateway.go` | request_id 未作为 `X-Request-ID` header 传给上游 | `forward()` 中生成 UUID 并设置 header |
+| 1 | ~~P1~~ ✅ | `gateway/gateway.go` | ~~request_id 未作为 `X-Request-ID` header 传给上游~~ | **已修**（2026-09-04 第十一轮：入站复用 + 响应回带 + 转发上游） |
 | 2 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
 | 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
 | 4 | P2 | SQLite 时间过滤（第七轮残留） | `created_at` 文本比较依赖库存/参数同偏移；**部署机换时区或 DST** 时存量行需一次性重写 | 长期：UTC 规范存储 + 数据迁移；短期：部署文档注明 |
-| 5 | P2 | `admin/providers.go` | 供应商 `protocol` 创建/更新时无枚举校验，非法值（如 `openai`）静默入库，网关转发时才报错 502 | createProvider/updateProvider 校验 `openai_chat\|openai_responses\|anthropic` |
+| 5 | ~~P2~~ ✅ | `admin/providers.go` | ~~供应商 `protocol` 创建/更新时无枚举校验~~ | **已修**（2026-09-04 第十一轮：create/update 校验 adapter 枚举常量，配置期 400） |
 | 6 | P3 | `model/model.go` | `CallLog.InputText/OutputText` 用 `type:text`，MySQL 下上限 64KB，超长 prompt 可能截断 | 升 `MEDIUMTEXT`（方言标签）或改无标签 string（mysql=longtext）；截断更稳妥 |
 
 ### 前端
@@ -362,6 +362,15 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 3 | Minor | 首屏体积 1.6MB | Vite chunk 超 1500KB 警告 | `React.lazy` 路由懒加载 |
 
 ## 📋 待办项（按优先级排序）
+
+### 当前待办速览（第十一轮后）
+
+- **P1**：#4 前端路由懒加载
+- **P2**：#5 WebSocket 审计推送、#6 Prometheus `/metrics`、#7 示例 .env + Compose（升级为 PG+Redis 模板）、#8 echarts
+- **Minor**：#9 骨架屏、#10 ListenPortNote 前端消费
+- **DevOps**：#11 CI/CD、#12 Compose PG(+Redis)、#13 .env.template
+- **多节点**：#16 SWRR 全局游标（可选）、#17 多节点部署文档（REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS + 拓扑）
+- **技术债**：SQLite 时区（P2）、CallLog 64KB（P3）、审计 writerLoop（P3，已有降级，可接受）
 
 ### P1 — 下一轮优先
 
@@ -393,8 +402,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | # | 任务 | 描述 |
 |---|------|------|
 | 11 | GitHub Actions CI/CD | 自动构建+测试+推送镜像 |
-| 12 | docker-compose with postgres | PG 部署模板 |
-| 13 | .env.template | 环境变量文档化 |
+| 12 | docker-compose with postgres (+Redis) | PG+Redis 部署模板（多节点形态） |
+| 13 | .env.template | 环境变量文档化（含 REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS） |
 
 ### 多节点（多实例横向扩展）
 
@@ -403,7 +412,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 14 | ~~Redis 全局速率限制~~ ✅ | **已完成**（2026-09-04 第十轮：固定窗口 Lua 原子计数 + 故障降级，双实例实测全局 429） |
 | 15 | ~~Redis 全局熔断状态~~ ✅ | **已完成**（2026-09-04 第十轮：打开事件 SETEX 广播 + TTL 半开，双实例实测 ≤1s 同步） |
 | 16 | SWRR 全局游标（可选） | 别名轮询游标迁 Redis；或按实例一致性哈希分片，避免多实例各自轮询导致的分布偏差 |
-| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明（含 REDIS_ADDR/REDIS_PASSWORD 说明） |
+| 17 | 多节点部署文档 | README 补多节点拓扑图 + LB/健康检查/会话亲和说明（含 REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS 说明） |
 
 ## 🌐 多节点能力矩阵（第十轮后）
 
