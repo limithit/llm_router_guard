@@ -251,6 +251,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
     - **默认密钥告警**: 启动时若 `JWT_SECRET`/`MASTER_KEY` 仍为默认值打印 `[security] WARNING`（不阻断启动）。
     - **上游拓扑不外泄**: 面向客户端的错误信息不再包含上游供应商名（审计 `UpstreamProvider` 列 + 服务端 `[upstream]` 日志仍保留，供管理员排查）。
     - **JWT**: HS256 且 `Parse` 强制校验 `SigningMethodHMAC`（拒绝 `alg=none` / 算法混淆），`exp` 经 `tok.Valid` 校验。
+    - **Help 页安全说明**: 新增「6. 安全说明」卡片（中英双语）。修复 i18n 用 `t()` 插值 React 元素导致 `[object Object]` 的 bug（deploymentBody/addrBody/aliasBody/deployBody 等 5 处改用 `<Trans components={{...}}>` + 翻译串 `<cN>...</cN>` 标签）。
 
 ---
 

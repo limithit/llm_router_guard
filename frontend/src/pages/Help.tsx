@@ -1,6 +1,6 @@
 // ===== 使用帮助：网关对外对接说明 =====
 // 服务地址、端点、鉴权（两套 Key 的区分）、模型别名路由、调用示例、对外部署。
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { Alert, Card, Col, Row, Table, Tag, Typography } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import PageContainer from '../components/PageContainer';
@@ -49,7 +49,7 @@ export default function Help() {
         message={t('help.deploymentTitle')}
         description={
           <div>
-            {t('help.deploymentBody', { c1: <Text code>:8080</Text>, c2: <Text code>PORT</Text>, c3: <Text code>/v1/*</Text> })}
+            <Trans i18nKey="help.deploymentBody" components={{ c1: <Text code>:8080</Text>, c2: <Text code>PORT</Text>, c3: <Text code>/v1/*</Text> }} />
           </div>
         }
         style={{ marginBottom: 16 }}
@@ -57,11 +57,14 @@ export default function Help() {
 
       <Card title={t('help.addrTitle')} size="small" style={{ marginBottom: 16 }}>
         <Paragraph>
-          {t('help.addrBody', {
-            c1: <Text code copyable>{`http://${t('help.yourHost')}:<port>/v1`}</Text>,
-            c2: <Text code>http://localhost:8080/v1</Text>,
-            c3: <Text code>{t('help.yourHost')}</Text>,
-          })}
+          <Trans
+            i18nKey="help.addrBody"
+            components={{
+              c1: <Text code copyable>{`http://${t('help.yourHost')}:<port>/v1`}</Text>,
+              c2: <Text code>http://localhost:8080/v1</Text>,
+              c3: <Text code>{t('help.yourHost')}</Text>,
+            }}
+          />
         </Paragraph>
         <Table
           size="small"
@@ -101,12 +104,12 @@ export default function Help() {
 
       <Card title={t('help.aliasTitle')} size="small" style={{ marginBottom: 16 }}>
         <Paragraph>
-          {t('help.aliasBody', { c1: <Text code>model</Text> })}
+          <Trans i18nKey="help.aliasBody" components={{ c1: <Text code>model</Text> }} />
           <Text strong>{t('help.aliasStrong')}</Text>
-          {t('help.aliasBody2', {
-            c2: <Text code>gpt-4o</Text>,
-            c3: <Text code>404 unknown model</Text>,
-          })}
+          <Trans
+            i18nKey="help.aliasBody2"
+            components={{ c1: <Text code>gpt-4o</Text>, c2: <Text code>404 unknown model</Text> }}
+          />
         </Paragraph>
       </Card>
 
@@ -134,11 +137,14 @@ export default function Help() {
 
       <Card title={t('help.deployTitle')} size="small" style={{ marginBottom: 16 }}>
         <Paragraph>
-          {t('help.deployBody', {
-            c1: <Text code>localhost:8080</Text>,
-            c2: <Text code>{`http://${t('help.serverAddr')}:8080/v1/...`}</Text>,
-            c3: <Text code>:8080</Text>,
-          })}
+          <Trans
+            i18nKey="help.deployBody"
+            components={{
+              c1: <Text code>localhost:8080</Text>,
+              c2: <Text code>{`http://${t('help.serverAddr')}:8080/v1/...`}</Text>,
+              c3: <Text code>:8080</Text>,
+            }}
+          />
         </Paragraph>
       </Card>
 
