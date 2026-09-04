@@ -20,6 +20,7 @@ import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import JsonView from '../../components/JsonView';
+import LiveAuditStream from '../../components/LiveAuditStream';
 import { apikeyApi, callLogApi } from '../../api/endpoints';
 import { CALL_STATUS_META, colorOf, useDictLabel, useDictOptions } from '../../constants/dicts';
 import { useTranslation } from 'react-i18next';
@@ -190,6 +191,11 @@ export default function Calls() {
           {t('common.reset')}
         </Button>
       </Space>
+
+      {/* 实时调用流（P2 #5：WebSocket 推送，暂停/清空） */}
+      <div style={{ marginBottom: 12 }}>
+        <LiveAuditStream />
+      </div>
 
       <Table<CallLogRow>
         rowKey="request_id"

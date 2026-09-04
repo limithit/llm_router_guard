@@ -30,4 +30,13 @@ export default {
   'calls.outputFull': 'Full Output',
   'calls.findings': 'Guard Findings (guard_findings)',
   'calls.none': '(none)',
+  'calls.live.title': 'Live Call Stream',
+  'calls.live.live': 'LIVE',
+  'calls.live.connecting': 'Connecting',
+  'calls.live.disconnected': 'Disconnected',
+  'calls.live.empty': 'No new calls yet — send a gateway request to see one',
+  'calls.live.pause': 'Pause (freeze current list)',
+  'calls.live.resume': 'Resume live updates',
+  'calls.live.clear': 'Clear received events',
+  'calls.live.total': '{{n}} total',
 };

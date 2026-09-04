@@ -30,4 +30,13 @@ export default {
   'calls.outputFull': '输出全文',
   'calls.findings': '护栏命中（guard_findings）',
   'calls.none': '（无）',
+  'calls.live.title': '实时调用流',
+  'calls.live.live': '实时',
+  'calls.live.connecting': '连接中',
+  'calls.live.disconnected': '已断开',
+  'calls.live.empty': '暂无新调用，发起一次网关请求试试',
+  'calls.live.pause': '暂停（冻结当前列表）',
+  'calls.live.resume': '恢复实时刷新',
+  'calls.live.clear': '清空已收事件',
+  'calls.live.total': '累计 {{n}} 条',
 };
