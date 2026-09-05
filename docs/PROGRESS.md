@@ -464,7 +464,7 @@
 
 ### Git 状态
 - 当前分支：`cluster`
-- 最新提交：`dd2dcb7 docs: CI usage note + round-14 progress...`（第十五轮变更待提交）
+- 最新提交：`dfa6a60 docs: round-15 progress...`（第十五轮 4 笔已提交：`0ecf45c` fix(db) UTC、`0725403` fix(runtime) 热加载、`b343ddd` feat(slb) 全局游标、`dfa6a60` docs）
 - 第十五轮涉及：`backend/internal/db/{db.go,utcnormalizer.go,sqlite_utc.go,sqlite_time_test.go}`、
   `backend/internal/runtime/manager.go`、`backend/internal/slb/{slb.go,swrr_remote.go,swrr_remote_test.go}`、
   `backend/internal/admin/tokenstats.go`（注释）、`deploy/e2e.py`、`.github/workflows/ci.yml`、
