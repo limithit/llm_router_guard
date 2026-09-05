@@ -9,6 +9,14 @@
 //     其余实例 ≤1s 内同步跳过该供应商；成功恢复即删除共享键。
 //   - 未注入 Redis（单节点 / SQLite）时完全走内存，行为与旧版一致；
 //     Redis 故障自动降级内存并后台探活恢复，不阻塞转发热路径。
+//
+// 全局 SWRR 游标（第十五轮 #16，多节点）：
+//   - Redis 可用时，SWRR 的每一步游标推进改为 Lua 原子执行
+//     （gw:swrr:v1:<alias> HASH：providerID → currentWeight），多实例
+//     轮询序列互不重叠、严格按权重比例分流；
+//   - 仅在"候选 = 全部上游且无 tried 排除"的干净路径走全局游标
+//     （故障转移重试路径候选动态，本地游标兜底）；
+//   - Redis 故障自动降级实例本地游标并后台探活恢复（同熔断共享语义）。
 package slb
 
 import (
@@ -232,6 +240,14 @@ func (bl *Balancer) Pick(alias string, ups []runtime.ResolvedUpstream, tried map
 	if total <= 0 || len(candidates) == 0 {
 		return runtime.ResolvedUpstream{}, false
 	}
+
+	// 全局游标路径（#16）：无 tried 排除（干净请求）且 Redis 可用 →
+	// 用健康过滤后的候选集原子推进共享游标；失败/降级回落本地游标。
+	if len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get() {
+		if picked, ok := bl.swrrRemote(alias, candidates); ok {
+			return picked, true
+		}
+	}
 	return swrrPick(cw, candidates, total), true
 }
 
@@ -253,6 +269,12 @@ func (bl *Balancer) PickIgnoringCircuit(alias string, ups []runtime.ResolvedUpst
 	}
 	if total <= 0 || len(candidates) == 0 {
 		return runtime.ResolvedUpstream{}, false
+	}
+
+	if len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get() {
+		if picked, ok := bl.swrrRemote(alias, candidates); ok {
+			return picked, true
+		}
 	}
 	return swrrPick(cw, candidates, total), true
 }

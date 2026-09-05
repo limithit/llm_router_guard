@@ -252,7 +252,7 @@ volumes:
 | 变量 | 说明 |
 |------|------|
 | `DB_TYPE` + `DB_DSN` | 所有实例指向**同一个** PostgreSQL / MySQL 库；sqlite 仅限单节点（文件锁 + 单写连接） |
-| `REDIS_ADDR` | Redis 地址 `host:port`，启用分布式限流（原子 INCR 固定窗口）、熔断打开状态广播（SETEX + TTL 自动半开）、MFA 二步票据（GET+DEL 原子核销）。仅 mysql/postgres 生效 |
+| `REDIS_ADDR` | Redis 地址 `host:port`，启用分布式限流（原子 INCR 固定窗口）、熔断打开状态广播（SETEX + TTL 自动半开）、MFA 二步票据（GET+DEL 原子核销）、**全局 SWRR 轮询游标**（Lua 原子推进，多实例分流互不重叠；掉线自动降级实例本地游标）。仅 mysql/postgres 生效 |
 | `REDIS_PASSWORD` | Redis 密码；带 `requirepass` 的 Redis 必须配置，否则三组件启动即 `NOAUTH` 降级（行为如实告警） |
 | `HEALTH_CHECK_SECONDS` | 上游健康检查周期秒（默认 30，`0`=禁用）：任何 HTTP 响应（含 401/404）=端点可达=清熔断；仅传输层错误（超时/DNS/连接拒绝）累计，达熔断阈值自动打开。多实例部署探测结果**经 Redis 广播**——任一实例打开熔断，其余实例 ≤1s 同步跳过该供应商 |
 | `TRUSTED_PROXIES` | **LB 后必须设为代理 CIDR**（如 `10.0.0.0/8`）。默认空时 `ClientIP` 取 TCP 对端——不设则 API Key 的 IP 白名单会把所有请求匹配到 LB 地址，白名单形同虚设 |
@@ -261,7 +261,7 @@ volumes:
 **各状态域跨实例一致性**
 
 - **全局一致（DB 承载）**：业务配置、配额（`used_value` 原子累加）、调用/操作审计、API Key/供应商/模型别名/限流规则、管理端 JWT（无状态，任一实例可校验）。
-- **全局一致（Redis 承载，需 `REDIS_ADDR`）**：速率限制（"100/min" 全局精确 429）、SLB 熔断打开状态、MFA 二步登录票据（LB 后任意实例可完成二步验证）。
+- **全局一致（Redis 承载，需 `REDIS_ADDR`）**：速率限制（"100/min" 全局精确 429）、SLB 熔断打开状态、MFA 二步登录票据（LB 后任意实例可完成二步验证）、**SWRR 全局轮询游标**（多实例加权分流互补重叠，干净请求路径 Lua 原子推进；故障转移重试路径走实例本地游标）。
 - **实例本地**：SWRR 轮询游标——每实例独立轮询，单实例内分发仍正确，仅全局分布略有偏差（可接受，无需会话亲和）。
 
 **配置热加载**：任一实例在管理后台变更配置 → DB `config_meta.counter` 递增 → 其余实例 ≤`hot_reload_seconds`（默认 3 秒）内自动重载快照；外部工具直改数据库同样生效（轮询兜底）。
