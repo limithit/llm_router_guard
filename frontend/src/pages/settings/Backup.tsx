@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import { CloudUploadOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import { backupApi } from '../../api/endpoints';
 import { fmtBytes, fmtTime } from '../../utils/format';
 import type { BackupItem } from '../../api/types';
@@ -101,7 +102,7 @@ export default function Backup() {
     >
       <Table<BackupItem>
         rowKey="id"
-        loading={isLoading}
+        loading={tableLoading(isLoading, undefined, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },

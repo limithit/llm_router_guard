@@ -29,6 +29,7 @@ import {
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import i18n from '../../i18n';
 import { keywordApi } from '../../api/endpoints';
@@ -304,7 +305,7 @@ export default function Keywords() {
 
       <Table<Keyword>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 860 }}
         columns={[

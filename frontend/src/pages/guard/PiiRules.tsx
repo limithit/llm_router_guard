@@ -27,6 +27,7 @@ import {
   ProfileOutlined,
 } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { piiApi } from '../../api/endpoints';
 import { ACTION_META, PII_CATEGORY_META, colorOf, useDictLabel, useDictOptions } from '../../constants/dicts';
@@ -243,7 +244,7 @@ export default function PiiRules() {
 
       <Table<PiiRule>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 900 }}
         columns={[

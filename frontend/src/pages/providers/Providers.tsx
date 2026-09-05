@@ -20,6 +20,7 @@ import {
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { keepPreviousData } from '@tanstack/react-query';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { providerApi } from '../../api/endpoints';
 import { PROTOCOL_META, useDictLabel, useDictOptions } from '../../constants/dicts';
@@ -221,7 +222,7 @@ export default function Providers() {
 
       <Table<Provider>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         size="middle"
         scroll={{ x: 980 }}

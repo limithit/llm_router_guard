@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import { CopyOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { apikeyApi, modelApi } from '../../api/endpoints';
 import { fmtTime } from '../../utils/format';
@@ -187,7 +188,7 @@ export default function ApiKeys() {
     >
       <Table<ApiKey>
         rowKey="id"
-        loading={isLoading}
+        loading={tableLoading(isLoading, undefined, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 900 }}
         columns={[

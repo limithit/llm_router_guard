@@ -24,6 +24,7 @@ import {
 } from 'antd';
 import { PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { apikeyApi, modelApi, quotaApi } from '../../api/endpoints';
 import {
@@ -268,7 +269,7 @@ export default function Quotas() {
     >
       <Table<Quota>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending || resetMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending || resetMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 1100 }}
         columns={[

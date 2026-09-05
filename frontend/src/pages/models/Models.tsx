@@ -24,6 +24,7 @@ import {
 } from 'antd';
 import { DeleteOutlined, LineChartOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { modelApi, providerApi } from '../../api/endpoints';
 import { PROTOCOL_META, useDictLabel } from '../../constants/dicts';
@@ -169,7 +170,7 @@ export default function Models() {
 
       <Table<ModelAlias>
         rowKey="id"
-        loading={isLoading}
+        loading={tableLoading(isLoading, undefined, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 900 }}
         columns={[

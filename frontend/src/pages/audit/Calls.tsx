@@ -19,6 +19,7 @@ import {
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import JsonView from '../../components/JsonView';
 import LiveAuditStream from '../../components/LiveAuditStream';
 import { apikeyApi, callLogApi } from '../../api/endpoints';
@@ -199,7 +200,7 @@ export default function Calls() {
 
       <Table<CallLogRow>
         rowKey="request_id"
-        loading={isLoading}
+        loading={tableLoading(isLoading, undefined, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 1250 }}
         columns={[

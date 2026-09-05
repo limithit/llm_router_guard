@@ -22,6 +22,7 @@ import {
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DonutChart, LineChart } from '../../components/Charts';
+import { tableLoading } from '../../components/TableSkeleton';
 import { apikeyApi, tokenStatsApi } from '../../api/endpoints';
 import { fmtNumber } from '../../utils/format';
 import type { TokenStatsFilter, TokenUsageByKey } from '../../api/types';
@@ -279,7 +280,7 @@ export default function TokenStats() {
         <Table<TokenUsageByKey>
           rowKey="api_key_id"
           size="small"
-          loading={isLoading}
+          loading={tableLoading(isLoading, undefined, (data?.by_key?.length ?? 0) > 0)}
           dataSource={data?.by_key ?? []}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
           locale={{ emptyText: t('tokenStats.byKeyEmpty') }}

@@ -20,6 +20,7 @@ import {
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { apikeyApi, rateLimitApi } from '../../api/endpoints';
 import { fmtNumber } from '../../utils/format';
@@ -130,7 +131,7 @@ export default function RateLimits() {
     >
       <Table<RateLimit>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 860 }}
         columns={[

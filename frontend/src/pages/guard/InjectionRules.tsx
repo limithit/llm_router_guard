@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import { CheckSquareOutlined, PlusOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import StatusSwitch from '../../components/StatusSwitch';
 import { injectionApi } from '../../api/endpoints';
 import {
@@ -203,7 +204,7 @@ export default function InjectionRules() {
 
       <Table<InjectionRule>
         rowKey="id"
-        loading={isLoading || deleteMutation.isPending}
+        loading={tableLoading(isLoading, deleteMutation.isPending, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 860 }}
         columns={[

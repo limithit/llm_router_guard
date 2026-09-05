@@ -21,6 +21,7 @@ import {
 import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import PageContainer from '../../components/PageContainer';
+import { tableLoading } from '../../components/TableSkeleton';
 import JsonView from '../../components/JsonView';
 import { opLogApi } from '../../api/endpoints';
 import { OP_ACTION_META, OP_MODULE_META, useDictLabel, useDictOptions } from '../../constants/dicts';
@@ -134,7 +135,7 @@ export default function Operations() {
 
       <Table<OpLogRow>
         rowKey="id"
-        loading={isLoading}
+        loading={tableLoading(isLoading, undefined, (data?.items?.length ?? 0) > 0)}
         dataSource={data?.items ?? []}
         scroll={{ x: 1000 }}
         columns={[
