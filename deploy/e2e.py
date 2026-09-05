@@ -134,7 +134,18 @@ def main():
     kid = body["data"]["id"]
     key = body["data"]["key"]
 
-    time.sleep(4)  # wait hot-reload (HotReloadSeconds=3)
+    # 等待热加载可见（触发式重载 + 轮询兜底；最快即刻，慢时数秒）。
+    # 轮询 /status 的 config_status.version 直到变化（= 新快照已加载、Key 必然在内）；
+    # 不用网关探活（探活调用会被审计，污染 audit.calls/token.stats 计数）。
+    _, pre = req("GET", "/api/admin/v1/status", token=tok)
+    pre_ver = ((pre.get("data") or {}).get("config_status") or {}).get("version")
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        _, cur = req("GET", "/api/admin/v1/status", token=tok)
+        cur_ver = ((cur.get("data") or {}).get("config_status") or {}).get("version")
+        if cur_ver and cur_ver != pre_ver:
+            break
+        time.sleep(0.3)
 
     # 6. gateway non-stream call
     st, body = req("POST", "/v1/chat/completions", {

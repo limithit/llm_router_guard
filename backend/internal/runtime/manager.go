@@ -183,6 +183,13 @@ func (m *Manager) Reload(reason string) error {
 	}
 	defer m.busy.Store(false)
 
+	// 在查询开始前捕获 counter（第十五轮热加载可见性修复）：
+	// 若重载在途期间又有新的 Bump（counter 继续推进），结束时以"起始值"回写
+	// dbCount —— 待处理的 trigger 会看到 counter 仍然更大而触发补载，
+	// 保证最新创建的 API Key/别名最终可见；若重读最新值则会吞掉该变化，
+	// 新 Key 长时间不可见（E2E 网关 401 直到下一次配置变更）。
+	dbCountAtStart := m.currentMeta().Counter
+
 	snap := emptySnapshot()
 	snap.LoadedAt = time.Now()
 	var loadErrs []string
@@ -325,9 +332,8 @@ func (m *Manager) Reload(reason string) error {
 	snap.Version = time.Now().Format("v20060102.150405")
 	snap.LoadErrors = loadErrs
 
-	meta := m.currentMeta()
 	m.mu.Lock()
-	m.dbCount = meta.Counter
+	m.dbCount = dbCountAtStart // 见函数头注释：以起始 counter 回写，未覆盖的 Bump 留待补载
 	m.Version = snap.Version
 	m.Status = status
 	m.Err = errMsg
