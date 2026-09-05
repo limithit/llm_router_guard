@@ -7,12 +7,13 @@ COPY frontend/ .
 RUN npm run build
 
 # ---- Go 编译阶段 ----
-FROM golang:1.24-alpine AS builder
+# 版本须与 backend/go.mod 的 go 指令一致（1.25）；低版本镜像会触发运行时工具链下载
+FROM golang:1.25-alpine AS builder
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
-# 将前端 dist 复制到后端 web/dist，供 go:embed 使用
+# 将前端 dist 复制到后端 web/dist：运行时从磁盘读取（非 go:embed），须随二进制同目录部署
 COPY --from=frontend-builder /app/dist ./web/dist
 COPY backend/ .
 ENV CGO_ENABLED=0

@@ -66,10 +66,10 @@ func formatValue(v float64) string {
 
 // goRuntimeSamples：runtime/metrics 样本 → (导出名, 类型, help)。
 var goRuntimeSamples = []struct {
-	name      string // runtime/metrics 样本名
-	export    string // Prometheus 指标名
-	typ       string // counter | gauge
-	help      string
+	name   string // runtime/metrics 样本名
+	export string // Prometheus 指标名
+	typ    string // counter | gauge
+	help   string
 }{
 	{"/gc/heap/allocs:bytes", "go_gc_heap_allocs_bytes_total", "counter", "Cumulative heap bytes allocated"},
 	{"/gc/heap/frees:bytes", "go_gc_heap_frees_bytes_total", "counter", "Cumulative heap bytes freed"},
