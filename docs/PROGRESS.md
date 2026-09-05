@@ -1,6 +1,46 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-05（第十三轮：P2 全清——Prometheus /metrics + WebSocket 实时审计 + echarts + .env 模板）
+最后更新：2026-09-05（第十四轮：CI/CD + 骨架屏 + 陈旧待办清理 + CallLog 大文本列）
+
+##  本轮迭代变更（第十四轮）
+
+### 新增：GitHub Actions CI（待办 DevOps #11 ✅）
+- **`.github/workflows/ci.yml`** 三段流水线（push/PR 到 main/cluster，并发去重）：
+  1. **backend**：`gofmt -l` 检查 → `go vet` → `go test -race -count=1 ./...`（Go 1.25，go.sum 缓存）
+  2. **frontend**：`npm ci`（lockfile 缓存）→ `tsc --noEmit + vite build` → 上传 dist artifact
+  3. **docker**：依赖前两段通过后 `docker/build-push-action` 构建镜像（不推送，GHA 层缓存）
+- **Dockerfile 修复**：`golang:1.24` → `1.25`（低版本镜像遇 go.mod `go 1.25` 会触发运行时工具链下载）；
+  过时的 `go:embed` 注释改为运行时磁盘读取描述。
+- **本地预演全绿**：`gofmt -l` 干净（修复 prom.go 格式）、`go vet ./...` 通过——推上去即绿。
+- 仓库托管在**阿里云 Codeup**：GitHub Actions 文件随镜像/迁移仓库直接生效；Codeup Flow 按
+  ci.yml 同序复用三段命令（README 已注明）。
+
+### 新增：表格骨架屏（待办 Minor #9 ✅）
+- **新组件** `components/TableSkeleton.tsx`：`<TableSkeleton rows={5}/>` 骨架行指示器 +
+  `tableLoading(initial, busy, hasData)` 一行式 helper（antd Table loading prop 三态：
+  首查无数据→骨架屏；翻页/刷新已有数据→转圈；操作忙碌→转圈）。
+- **接入 12 张表格**：Providers / Keywords / PiiRules / InjectionRules / Quotas / RateLimits /
+  Models / ApiKeys / Calls / Operations / Backup / TokenStats(by_key)——mutation 加载态
+  保留原转圈语义不回归。
+- 前端 `tsc + vite build` 零错误。
+
+### 闭项：ListenPortNote 前端消费（待办 Minor #10，陈旧条目）
+- 核实：`General.tsx` 自**首版骨架（0d6cdfc，2026-09-02）**即 `tooltip={data?.listen_port_note || t(...)}`，
+  后端第三轮起返回该字段——功能一直完整，待办条目属陈旧登记，无代码改动。
+
+### 修复：CallLog 大文本列方言截断（技术债，对应已知问题 #6）
+- `model.CallLog.InputText/OutputText` 去掉 `gorm:"type:text"` 方言标签：
+  **mysql→longtext（64KB→4GB）**、pg→text、sqlite→text——GORM 各方言默认全量存储，
+  超长 prompt 不再被 MySQL TEXT 64KB 截断（第九轮事故根因的彻底解法）。
+- 实测：MySQL 建表 `SHOW COLUMNS` 确认 `input_text/output_text = longtext`；
+  全新库 E2E 20/20（含审计全文/详情链路）。
+- SQLite 存 UTC 文本问题**不在本轮**（涉及历史数据迁移，保持 P2）。
+
+### 实测与回归
+- 后端 `go test ./...` 9 包全绿；前端构建零错误；**MySQL E2E 20/20**（全新库）。
+- E2E 备忘：本机 18081 被会话外服务占用（Go 风格 404、无法从会话内终止）——
+  `.e2e/e2e.py` 副本支持 `MOCK_PORT` 覆盖（`deploy/e2e.py` 原件未动），mock 改走 18089。
+  **库重置（DROP/CREATE）后必须重启网关进程**（admin 引导只在启动时进行）。
 
 ##  本轮迭代变更（第十三轮）
 
@@ -345,8 +385,8 @@
 ## 📊 当前状态总览
 
 ### 编译状态
-- ✅ **后端** `go test ./...` — 全绿 9 包（第十三轮新增：prom 5 测试 + hub 5 测试 + WS 4 测试，-race）
-- ✅ **前端** `vite build` — 零错误（入口 178KB/gzip 63KB + antd 1,363KB + Charts 535KB(gzip 181KB) echarts 按需 chunk + 22 个按页 chunk）
+- ✅ **后端** `go test ./...` — 全绿 9 包；`gofmt -l` 干净；`go vet ./...` 通过（CI 三项本地预演）
+- ✅ **前端** `vite build` — 零错误（入口 178KB/gzip 63KB + Charts 535KB + antd 1,363KB + 22 个按页 chunk）
 
 ### 测试状态
 - ✅ **全后端** `go test ./...` — 全绿
@@ -368,10 +408,10 @@
 
 ### Git 状态
 - 当前分支：`cluster`
-- 最新提交：`f652154 docs: multi-node deployment guide...`（第十三轮变更待提交）
-- 第十三轮涉及：`backend/internal/{metrics,audit,admin}`、`frontend/src/{hooks,components,pages/audit}`、
-  `frontend/src/components/Charts.tsx`、`frontend/package.json`、`.env.template`、`docker-compose.yml`、
-  `docs/api-contract.md`、`docs/PROGRESS.md`、`.gitignore`
+- 最新提交：`ca8a680 docs+chore: .env.template...`（第十四轮变更待提交）
+- 第十四轮涉及：`.github/workflows/ci.yml`（新增）、`Dockerfile`、`README.md`、
+  `backend/internal/model/model.go`、`backend/internal/metrics/prom.go`（gofmt）、
+  `frontend/src/components/TableSkeleton.tsx`（新增）+ 12 个页面、`docs/PROGRESS.md`
 
 ## 📝 已完成迭代历史
 
@@ -446,7 +486,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
 | 4 | P2 | SQLite 时间过滤（第七轮残留） | `created_at` 文本比较依赖库存/参数同偏移；**部署机换时区或 DST** 时存量行需一次性重写 | 长期：UTC 规范存储 + 数据迁移；短期：部署文档注明 |
 | 5 | ~~P2~~ ✅ | `admin/providers.go` | ~~供应商 `protocol` 创建/更新时无枚举校验~~ | **已修**（2026-09-04 第十一轮：create/update 校验 adapter 枚举常量，配置期 400） |
-| 6 | P3 | `model/model.go` | `CallLog.InputText/OutputText` 用 `type:text`，MySQL 下上限 64KB，超长 prompt 可能截断 | 升 `MEDIUMTEXT`（方言标签）或改无标签 string（mysql=longtext）；截断更稳妥 |
+| 6 | ~~P3~~ ✅ | `model/model.go` | ~~`CallLog.InputText/OutputText` 用 `type:text`，MySQL 下上限 64KB~~ | **已修**（2026-09-05 第十四轮：去方言标签 → mysql=longtext / pg=text，实测 `SHOW COLUMNS` 确认） |
 
 ### 前端
 
@@ -458,13 +498,11 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 ## 📋 待办项（按优先级排序）
 
-### 当前待办速览（第十三轮后）
+### 当前待办速览（第十四轮后）
 
-- **P1/P2**：空（P2 #5/#6/#7/#8 与 DevOps #12/#13 全部完成）
-- **Minor**：#9 骨架屏、#10 ListenPortNote 前端消费
-- **DevOps**：#11 GitHub Actions CI/CD
+- **P1/P2/Minor/DevOps**：全部完成（#4~#13 + #11 CI）
 - **多节点**：#16 SWRR 全局游标（可选）
-- **技术债**：SQLite 时区（P2）、CallLog 64KB（P3）、审计 writerLoop（P3，已有降级，可接受）
+- **技术债**：SQLite 时区（P2，需历史数据迁移方案）、审计 writerLoop（P3，已有降级，可接受）
 
 ### P1 — 下一轮优先
 
@@ -488,14 +526,14 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 | # | 任务 | 描述 |
 |---|------|------|
-| 9 | 前端 Skeleton 骨架屏 | Table 组件加 `Skeleton` |
-| 10 | `ListenPortNote` 前端消费 | 读 API 返回值替代硬编码 |
+| 9 | ~~前端 Skeleton 骨架屏~~ ✅ | **已完成**（2026-09-05 第十四轮：TableSkeleton + tableLoading 接入 12 张表格） |
+| 10 | ~~ListenPortNote 前端消费~~ ✅ | **闭项**（2026-09-05 第十四轮核实：General.tsx 首版即消费 API 值 `data?.listen_port_note || t(...)`，条目陈旧） |
 
 ### DevOps
 
 | # | 任务 | 描述 |
 |---|------|------|
-| 11 | GitHub Actions CI/CD | 自动构建+测试+推送镜像 |
+| 11 | ~~GitHub Actions CI/CD~~ ✅ | **已完成**（2026-09-05 第十四轮：`.github/workflows/ci.yml` gofmt/vet/test-race → tsc+vite build → docker build；Codeup Flow 同序复用） |
 | 12 | ~~docker-compose with postgres (+Redis)~~ ✅ | PG+Redis 拓扑：README 多节点章节双网关模板（第十二轮）+ compose env 直通（第十三轮） |
 | 13 | ~~.env.template~~ ✅ | **已完成**（2026-09-05 第十三轮：全部变量文档化，cp 即用） |
 
@@ -554,8 +592,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 ---
 
 **下一步行动**:
-1. ✅ 第十二轮：前端路由懒加载 + vendor 分包 + 多节点部署文档 + Ubuntu24/MySQL8.0 E2E 20/20
-2. ✅ 第十三轮：P2 全清——/metrics、WS 实时审计（零依赖 RFC6455）、echarts、.env 模板；MySQL E2E 20/20 + WS 探针 9/9
-3. ⏳ DevOps #11：GitHub Actions CI/CD
-4. ⏳ Minor：#9 骨架屏、#10 ListenPortNote 前端消费
-5. ⏳ 技术债：SQLite UTC 规范存储迁移、CallLog 大文本、#16 SWRR 全局游标（可选）
+1. ✅ 第十三轮：P2 全清——/metrics、WS 实时审计（零依赖 RFC6455）、echarts、.env 模板
+2. ✅ 第十四轮：CI（GitHub Actions）+ 表格骨架屏 ×12 + CallLog longtext（已知问题 #6 闭项）+ #10 陈旧条目闭项
+3. ⏳ 技术债：SQLite UTC 文本存储迁移（涉及历史数据，方案另立轮次）
+4. ⏳ 可选：#16 SWRR 全局游标、审计 writerLoop 带宽限制
+5. 维护性工作：随 issue/需求驱动

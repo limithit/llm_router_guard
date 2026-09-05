@@ -119,6 +119,10 @@ frontend/                         # React 前端
 
 ## 构建与部署
 
+CI：GitHub Actions（`.github/workflows/ci.yml`）——push/PR 到 `main`/`cluster` 自动执行
+后端 `gofmt/vet/test -race` → 前端 `tsc + vite build` → Docker 镜像构建（不推送）；
+托管在阿里云 Codeup 时 Flow 流水线按同序复用这三段命令即可。
+
 部署形态为**单进程**：一个 Go 二进制即整个运行时，在 :8080 同时对外提供管理 API、网关端点和前端 SPA，前端不需要 Nginx 或独立 Node 服务。
 
 ### 单二进制部署（推荐）
