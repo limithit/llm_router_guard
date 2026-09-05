@@ -250,8 +250,8 @@ type CallLog struct {
 	ModelAlias       string    `gorm:"size:64;index" json:"model_alias"`
 	UpstreamProvider string    `gorm:"size:64" json:"upstream_provider"`
 	UpstreamModel    string    `gorm:"size:64" json:"upstream_model"`
-	InputText        string    `gorm:"type:text" json:"-"` // 已脱敏（NFR-009）
-	OutputText       string    `gorm:"type:text" json:"-"`
+	InputText        string    `json:"-"` // 已脱敏（NFR-009）；无 gorm type 标签：mysql→longtext / pg→text / sqlite→text，超长 prompt 不再 64KB 截断
+	OutputText       string    `json:"-"`
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
 	LatencyMs        int64     `json:"latency_ms"`
