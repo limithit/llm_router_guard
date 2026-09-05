@@ -253,7 +253,7 @@
 - **规则**：sqlite 模式忽略 Redis（单节点零依赖，保持不变）；mysql/postgres + REDIS_ADDR
   → 限流/熔断/MFA 票据全部分布式。`/status` 无新字段，启动日志打印各组件启用状态
   （`[ratelimit]|[slb]|[mfa] redis ... connected: ... ENABLED/cluster-wide`）。
-- SWRR 游标按实例本地（待办 #16，可选：轮询分布略有差异但每实例内仍正确，不阻塞多节点）。
+- SWRR 游标：第十五轮 #16 起为**全局游标**（Redis Lua 原子推进 `gw:swrr:v1:<alias>`，多实例分流互不重叠）；掉线自动降级实例本地游标。
 
 ### 多节点实测（真实环境，PG + Redis 共享，双实例 18080/18082）
 - **分布式限流 ✅**：A 打满 2/10s → 经 B 429、再经 A 仍 429（全局计数）；TTL 过期后恢复 200。
@@ -278,12 +278,12 @@
 | **速率限制** | ✅ 是（第十轮） | Redis 原子 INCR+PEXPIRE（`REDIS_ADDR`）| "100/min" 全局精确；故障降级单实例 |
 | **SLB 熔断器** | ✅ 是（第十轮） | 打开事件 SETEX 广播 + TTL 自动半开 | 任一实例打开，全体 ≤1s 跳过 |
 | **MFA 二步票据** | ✅ 是（第十轮） | Redis SET/GET+DEL + TTL 5min | LB 任意实例完成二步验证 |
-| **SWRR 游标** | ❌ 否（保持） | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确；待办 #16 可选） |
+| **SWRR 游标** | ✅ 是（第十五轮） | Redis Lua 原子推进 `gw:swrr:v1:<alias>`，干净请求全局推进；重试路径本地 | 多实例加权分流互不重叠；掉线自动降级实例本地 |
 
 **部署结论（更新）**：
 - 单节点：sqlite / pg / mysql 均可，无需 Redis。
-- 多节点：pg/mysql + `REDIS_ADDR`（+ `REDIS_PASSWORD`）→ 限流/熔断/MFA 全部跨实例一致，已实测。
-- 仅剩 SWRR 游标实例本地（轮询分布差异，可选优化 #16）。
+- 多节点：pg/mysql + `REDIS_ADDR`（+ `REDIS_PASSWORD`）→ 限流/熔断/MFA/SWRR 游标全部跨实例一致。
+- ~~仅剩 SWRR 游标实例本地（轮询分布差异，可选优化 #16）。~~ → 第十五轮 #16 已完成。
 
 ### 踩坑记录（第十轮）
 - **测试机 Redis 带 `requirepass`**：三组件启动即 `NOAUTH` 降级（降级逻辑按设计工作并如实告警）——
@@ -540,8 +540,8 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 |---|--------|------|------|------|
 | 1 | ~~P1~~ ✅ | `gateway/gateway.go` | ~~request_id 未作为 `X-Request-ID` header 传给上游~~ | **已修**（2026-09-04 第十一轮：入站复用 + 响应回带 + 转发上游） |
 | 2 | P3 | `audit/audit.go:writerLoop()` | DB 慢时 buffer 满阻塞 handler | 已有 `default: db.Create()` 降级，合理 |
-| 3 | Minor | `settings/general` | `listen_port_note` 字段前端未消费 | 前端读 API 返回值替代硬编码 |
-| 4 | P2 | SQLite 时间过滤（第七轮残留） | `created_at` 文本比较依赖库存/参数同偏移；**部署机换时区或 DST** 时存量行需一次性重写 | 长期：UTC 规范存储 + 数据迁移；短期：部署文档注明 |
+| 3 | ~~Minor~~ ✅ | `settings/general` | ~~`listen_port_note` 字段前端未消费~~ | **闭项**（2026-09-05 第十四轮核实：General.tsx 首版即消费 `data?.listen_port_note`，条目陈旧登记） |
+| 4 | ~~P2~~ ✅ | SQLite 时间过滤（第七轮残留） | ~~`created_at` 文本比较依赖库存/参数同偏移；换时区/DST 时存量行错序~~ | **已修**（2026-09-05 第十五轮：UTC 规范存储 + 启动时历史数据一次性迁移，见第十五轮记录） |
 | 5 | ~~P2~~ ✅ | `admin/providers.go` | ~~供应商 `protocol` 创建/更新时无枚举校验~~ | **已修**（2026-09-04 第十一轮：create/update 校验 adapter 枚举常量，配置期 400） |
 | 6 | ~~P3~~ ✅ | `model/model.go` | ~~`CallLog.InputText/OutputText` 用 `type:text`，MySQL 下上限 64KB~~ | **已修**（2026-09-05 第十四轮：去方言标签 → mysql=longtext / pg=text，实测 `SHOW COLUMNS` 确认） |
 
@@ -549,9 +549,9 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 | # | 优先级 | 位置 | 问题 | 建议 |
 |---|--------|------|------|------|
-| 1 | P2 | `components/Charts.tsx` | 手动 SVG 绘制，样式简单 | 添加 `echarts-for-react` |
-| 2 | Minor | 多个 Table 组件 | 仅有 `loading` prop，缺骨架屏 | 加 antd `Skeleton` |
-| 3 | Minor | 首屏体积 1.6MB | Vite chunk 超 1500KB 警告 | `React.lazy` 路由懒加载 |
+| 1 | ~~P2~~ ✅ | `components/Charts.tsx` | ~~手动 SVG 绘制，样式简单~~ | **已完成**（2026-09-05 第十三轮：echarts-for-react，props 兼容） |
+| 2 | ~~Minor~~ ✅ | 多个 Table 组件 | ~~仅有 `loading` prop，缺骨架屏~~ | **已完成**（2026-09-05 第十四轮：TableSkeleton + tableLoading 接入 12 表） |
+| 3 | ~~Minor~~ ✅ | 首屏体积 1.6MB | ~~Vite chunk 超 1500KB 警告~~ | **已完成**（2026-09-04 第十二轮：React.lazy 22 页 + vendor 分包，入口 gzip 63KB） |
 
 ## 📋 待办项（按优先级排序）
 
@@ -617,13 +617,12 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 | **速率限制** | ✅ 是（第十轮） | Redis 原子 INCR+PEXPIRE（`REDIS_ADDR`，故障自动降级本地） | "100/min" 全局精确（双实例实测） |
 | **SLB 熔断器** | ✅ 是（第十轮） | 打开事件 Redis SETEX 广播 + TTL 自动半开（故障降级） | 任一实例打开，全体 ≤1s 跳过（双实例实测） |
 | **MFA 二步登录票据** | ✅ 是（第十轮） | Redis SET/GET+DEL + TTL 5min（不可达回退内存） | LB 任意实例完成二步验证 |
-| **SWRR 游标** | ❌ 否（保持） | 别名轮询游标内存 | 每实例各自轮询，非全局均衡（单实例内仍正确；待办 #16 可选） |
+| **SWRR 游标** | ✅ 是（第十五轮） | Redis Lua 原子推进 `gw:swrr:v1:<alias>`（干净请求全局推进；重试路径本地；故障降级） | 多实例加权分流互不重叠 |
 
 **部署结论**：
 - 单节点：sqlite / pg / mysql 均可，无需 Redis。
-- 多节点：pg/mysql 多实例 + 前置 LB + `REDIS_ADDR`（+`REDIS_PASSWORD`）→ 限流/熔断/MFA 全部跨实例一致
-  （第十轮双实例实测：分布式限流 429 全局生效、熔断跨实例 ≤1s 同步、半开自动恢复）。
-- SWRR 游标实例本地（可选优化 #16）；#14/#15 已完成。
+- 多节点：pg/mysql 多实例 + 前置 LB + `REDIS_ADDR`（+`REDIS_PASSWORD`）→ 限流/熔断/MFA/SWRR 游标全部跨实例一致
+  （第十轮双实例实测：分布式限流 429 全局生效、熔断跨实例 ≤1s 同步、半开自动恢复；第十五轮起 SWRR 游标全局化）。
 
 ## 🔑 关键技术决策记录
 
