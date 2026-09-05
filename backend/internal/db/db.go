@@ -4,6 +4,7 @@ package db
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/glebarez/sqlite"
@@ -50,10 +51,23 @@ func Open(dbType, dsn string) (*gorm.DB, error) {
 		if sqlDB, err := gdb.DB(); err == nil {
 			sqlDB.SetMaxOpenConns(1) // 避免 sqlite 写锁竞争（WAL 下读仍并发）
 		}
+		// UTC 归一化池（第十五轮）：拦截所有绑定参数的 time.Time → UTC 存储。
+		// 主池 + 根语句同步替换；Session/事务克隆自同一 Config，全路径生效。
+		if sqlDB, err := gdb.DB(); err == nil {
+			pool := &utcPool{db: sqlDB}
+			gdb.Config.ConnPool = pool
+			gdb.Statement.ConnPool = pool
+		}
 		gdb.Exec("PRAGMA journal_mode=WAL")
 	}
 	if err := gdb.AutoMigrate(model.AllModels()...); err != nil { // REQ-009/6.3.1 首次启动自动建表
 		return nil, fmt.Errorf("automigrate: %w", err)
+	}
+	if strings.ToLower(dbType) == "sqlite" {
+		// 历史数据一次性迁移：本地偏移文本 → UTC（幂等，非 Z 值才改写）
+		if err := normalizeSQLiteTimeColumns(gdb); err != nil {
+			log.Printf("[sqlite-utc] normalize legacy rows: %v", err)
+		}
 	}
 	return gdb, nil
 }
