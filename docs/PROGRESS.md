@@ -1,6 +1,62 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-05（第十四轮：CI/CD + 骨架屏 + 陈旧待办清理 + CallLog 大文本列）
+最后更新：2026-09-05（第十五轮：SQLite UTC 规范存储 + 热加载可见性修复 + SWRR 全局游标）
+
+##  本轮迭代变更（第十五轮）
+
+### 修复：SQLite 时区规范存储（技术债清偿，P2 最后一项）
+- **问题实证**：glebarez/go-sqlite 驱动无时区 DSN 开关，`time.Time` 按值自身时区写库
+  （如 `2026-09-05T12:00:00+08:00`）；同表混存不同偏移后 TEXT 词法比较
+  （BETWEEN/ORDER BY created_at）错序，库文件随实例时区漂移。
+- **写侧修复** `internal/db/utcnormalizer.go`：包装 gorm.ConnPool（含事务 ConnPool——
+  gorm Begin 整体替换 tx.Statement.ConnPool，两层必须都拦），在 database/sql 边界把
+  全部绑定参数的 `time.Time` 归一化为**固定 3 位毫秒宽 UTC 文本**
+  （`2006-01-02T15:04:05.000Z07:00`，如 `2026-09-05T04:00:00.000Z`）。
+  定宽保证词法序 == 时间序（RFC3339Nano 变宽小数会破坏 BETWEEN）；
+  主池/Raw/事务全路径单格式，杜绝驱动 T 形 vs 空格形双格式化分叉。
+- **历史数据迁移** `internal/db/sqlite_utc.go`：启动时枚举 sqlite_master + PRAGMA
+  table_info（不依赖模型注册表，覆盖历史遗留表），把 TEXT 日期列中"非 Z 结尾"的
+  ISO 值经 `strftime('%Y-%m-%dT%H:%M:%f', x) || 'Z'` 改写为 UTC（与新写入同形）；
+  julianday 存在性 + 日期前缀防误伤数字/文本列；幂等（仅非 Z 值）。
+- **踩坑记录**：gorm `Commit/Rollback` 对 TxCommitter 做 `reflect.Value.IsNil`——
+  包装体必须**指针形态**（结构体值会 panic）；gorm `DB()` 优先走 GetDBConnector，
+  包装体实现 `GetDBConn()` 避免硬断言。
+- **读路径兼容性发现**：驱动会把"长得像时间"的 TEXT 自动转 `time.Time`、gorm 扫进
+  string 字段时按 RFC3339Nano 重格式化（`.000` 被裁剪）——文本级断言须走服务端
+  LIKE/julianday，不能信读回的字符串形态。
+- MySQL/PG 不受影响（各自驱动/DSN 已保证）；`tokenstats.go` 分桶注释同步更新
+  （UTC 输入 + 'localtime' 修饰符 → 本地桶，语义不变）。
+
+### 修复：热加载可见性（快照吞掉并发 Bump）——本轮 E2E 排障的真 bug
+- **现象**：SQLite E2E 建完 API Key 后 4 秒起网关持续 401，直到下一次配置变更
+  （quota 步骤）才恢复；MySQL 偶发。config_versions 表复盘：apikey 的 Bump 后
+  **无任何 event/polling 重载**。
+- **根因**：`Manager.Reload` 结束时**重新读取** counter 写入 `dbCount`。一次重载在途
+  期间又有新的 Bump（counter 推进）→ 在途重载的快照里没有新 Key，但结束时把
+  `dbCount` 直接顶到最新值 → 待处理的 trigger 判定"无变化"而跳过补载。
+- **修复**：重载**开始前捕获** counter，结束时以起始值回写 dbCount——未覆盖的
+  Bump 依然大于 dbCount，pending trigger 必然触发补载。
+- **E2E 加固**（deploy/e2e.py）：建 Key 后的盲等 `sleep(4)` 改为轮询
+  `/status` 的 `config_status.version` 直到变化（新快照已加载即 Key 必然在内）；
+  不用网关探活（探活调用会被审计，污染 audit.calls/token.stats 计数）。
+
+### 新增：SWRR 全局游标（可选 #16，多节点）
+- `internal/slb/swrr_remote.go`：Redis Lua 原子执行 SWRR 一步推进
+  （`gw:swrr:v1:<alias>` HASH：providerID → currentWeight），多实例轮询序列
+  互不重叠、严格按权重比例分流。
+- 仅"干净请求"（无 tried 排除）走全局游标且用**健康过滤后的候选集**
+  （候选动态的故障转移重试路径走实例本地游标）；Redis 故障自动降级本地游标
+  并后台探活恢复（与熔断共享状态同一降级语义）。
+- 测试 4 项（Redis 门控，`GW_TEST_REDIS_ADDR` 提供实例或本机自动起
+  redis-server，无 Redis 环境 skip）：跨实例严格交替、2:1 权重配比、
+  掉线降级、tried 旁路。
+- CI：backend job 增加 redis 服务容器（`GW_TEST_REDIS_ADDR` 指向 6379），
+  全局游标测试在 CI 也真实执行。
+
+### 实测与回归
+- 后端 `go test ./...` **10 包全绿**（新增 db 包 UTC 套件 4 测试 + slb 全局游标 4 测试）；
+  gofmt/vet 干净。
+- **SQLite E2E 20/20**（全新库 + 修复后二进制）；**MySQL E2E 20/20**（回归确认）。
 
 ##  本轮迭代变更（第十四轮）
 
@@ -408,10 +464,11 @@
 
 ### Git 状态
 - 当前分支：`cluster`
-- 最新提交：`ca8a680 docs+chore: .env.template...`（第十四轮变更待提交）
-- 第十四轮涉及：`.github/workflows/ci.yml`（新增）、`Dockerfile`、`README.md`、
-  `backend/internal/model/model.go`、`backend/internal/metrics/prom.go`（gofmt）、
-  `frontend/src/components/TableSkeleton.tsx`（新增）+ 12 个页面、`docs/PROGRESS.md`
+- 最新提交：`dd2dcb7 docs: CI usage note + round-14 progress...`（第十五轮变更待提交）
+- 第十五轮涉及：`backend/internal/db/{db.go,utcnormalizer.go,sqlite_utc.go,sqlite_time_test.go}`、
+  `backend/internal/runtime/manager.go`、`backend/internal/slb/{slb.go,swrr_remote.go,swrr_remote_test.go}`、
+  `backend/internal/admin/tokenstats.go`（注释）、`deploy/e2e.py`、`.github/workflows/ci.yml`、
+  `README.md`、`docs/PROGRESS.md`
 
 ## 📝 已完成迭代历史
 
@@ -498,11 +555,10 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 
 ## 📋 待办项（按优先级排序）
 
-### 当前待办速览（第十四轮后）
+### 当前待办速览（第十五轮后）
 
-- **P1/P2/Minor/DevOps**：全部完成（#4~#13 + #11 CI）
-- **多节点**：#16 SWRR 全局游标（可选）
-- **技术债**：SQLite 时区（P2，需历史数据迁移方案）、审计 writerLoop（P3，已有降级，可接受）
+- **P1/P2/Minor/DevOps/多节点**：**全部完成**（#4~#13 + #11 CI + #16 全局游标）
+- **技术债**：全部清偿（CallLog longtext ✅、SQLite UTC ✅）；审计 writerLoop（P3，已有降级，可接受，仅余优化空间）
 
 ### P1 — 下一轮优先
 
@@ -543,7 +599,7 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 |---|------|------|
 | 14 | ~~Redis 全局速率限制~~ ✅ | **已完成**（2026-09-04 第十轮：固定窗口 Lua 原子计数 + 故障降级，双实例实测全局 429） |
 | 15 | ~~Redis 全局熔断状态~~ ✅ | **已完成**（2026-09-04 第十轮：打开事件 SETEX 广播 + TTL 半开，双实例实测 ≤1s 同步） |
-| 16 | SWRR 全局游标（可选） | 别名轮询游标迁 Redis；或按实例一致性哈希分片，避免多实例各自轮询导致的分布偏差 |
+| 16 | ~~SWRR 全局游标（可选）~~ ✅ | **已完成**（2026-09-05 第十五轮：Redis Lua 原子推进 `gw:swrr:v1:<alias>`，多实例分流互不重叠；干净请求走全局、重试路径走本地；掉线自动降级；CI 加 redis 服务容器） |
 | 17 | ~~多节点部署文档~~ ✅ | **已完成**（2026-09-04 第十二轮：README 多节点章节——拓扑图 /healthz 探活、REDIS_ADDR/REDIS_PASSWORD/HEALTH_CHECK_SECONDS 语义、TRUSTED_PROXIES 警示、一致性速查、Compose 双网关模板） |
 
 ## 🌐 多节点能力矩阵（第十轮后）
@@ -594,6 +650,6 @@ frontend/src/                           # React 前端 (37 个 .ts/.tsx 文件)
 **下一步行动**:
 1. ✅ 第十三轮：P2 全清——/metrics、WS 实时审计（零依赖 RFC6455）、echarts、.env 模板
 2. ✅ 第十四轮：CI（GitHub Actions）+ 表格骨架屏 ×12 + CallLog longtext（已知问题 #6 闭项）+ #10 陈旧条目闭项
-3. ⏳ 技术债：SQLite UTC 文本存储迁移（涉及历史数据，方案另立轮次）
-4. ⏳ 可选：#16 SWRR 全局游标、审计 writerLoop 带宽限制
-5. 维护性工作：随 issue/需求驱动
+3. ✅ 第十五轮：SQLite UTC 规范存储（技术债最后一项清偿）+ 热加载可见性修复（E2E 排障发现的真 bug）+ #16 SWRR 全局游标
+4. 功能性待办已全部完成——后续按需求/issue 驱动
+5. 维护性关注点：审计 writerLoop 优化（P3，可选）、CI 镜像发布（可选 GHCR/Codeup 制品库）
