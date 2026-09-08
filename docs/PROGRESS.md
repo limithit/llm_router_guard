@@ -470,7 +470,8 @@
   用途：DBA 预审 / 手工建库 / 只读账号部署；自动建表仍是默认路径。用法见 `deploy/schema/README.md`。
 
 ### Git 状态
-- 当前分支：`cluster`（本地 HEAD `a5cbcb5` feat(db): baseline schema.sql）
+- 当前分支：`master`（origin/master 已同步至 `647dc63`；历史分支 `cluster`/`dev`/`secure` 保留）
+- 最新功能提交：`a5cbcb5` feat(db): baseline schema.sql for MySQL and PostgreSQL, round-trip verified
 - 第十五轮 4 笔：`0ecf45c` fix(db) UTC、`0725403` fix(runtime) 热加载、`b343ddd` feat(slb) 全局游标、`dfa6a60` docs
 - 最新文档补遗：`a5cbcb5` schema 基线（MySQL+PG，往返一致已验证）
 - 第十五轮涉及：`backend/internal/db/{db.go,utcnormalizer.go,sqlite_utc.go,sqlite_time_test.go}`、
