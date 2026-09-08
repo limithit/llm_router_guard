@@ -461,10 +461,18 @@
 - ✅ MySQL 8.0.46（Ubuntu 24.04 本机）：20 步 E2E **20/20**（第十二轮复测，新环境从零搭建）
 - ✅ 双实例 + Redis：分布式限流全局 429、熔断跨实例 ≤1s 同步 + 半开恢复（第十轮 `deploy/mn_redis.sh` / `mn_circuit.sh`）
 - ✅ MySQL + Redis 单实例回归 20/20（第十轮）
+- ✅ **基线 schema.sql 往返验证**（第十五轮补遗，提交 `a5cbcb5`）：
+  `deploy/schema/{schema.mysql.sql,schema.postgres.sql}` 从当前 HEAD 的 AutoMigrate 产物导出
+  （mysqldump --no-data / pg_dump --schema-only，16 表含 CallLog longtext 修正、PG 版剥离 psql17
+  `\restrict` 保护行）；`deploy/verify_schema.sh` 回灌全新库 → 服务启动（AutoMigrate 幂等）
+  → 20 步 E2E **双库 20/20** → 重新 dump 与提交文件**逐行一致**
+  （`MYSQL_SCHEMA_ROUNDTRIP_IDENTICAL` / `PG_SCHEMA_ROUNDTRIP_IDENTICAL`）。
+  用途：DBA 预审 / 手工建库 / 只读账号部署；自动建表仍是默认路径。用法见 `deploy/schema/README.md`。
 
 ### Git 状态
-- 当前分支：`cluster`
-- 最新提交：`dfa6a60 docs: round-15 progress...`（第十五轮 4 笔已提交：`0ecf45c` fix(db) UTC、`0725403` fix(runtime) 热加载、`b343ddd` feat(slb) 全局游标、`dfa6a60` docs）
+- 当前分支：`cluster`（本地 HEAD `a5cbcb5` feat(db): baseline schema.sql）
+- 第十五轮 4 笔：`0ecf45c` fix(db) UTC、`0725403` fix(runtime) 热加载、`b343ddd` feat(slb) 全局游标、`dfa6a60` docs
+- 最新文档补遗：`a5cbcb5` schema 基线（MySQL+PG，往返一致已验证）
 - 第十五轮涉及：`backend/internal/db/{db.go,utcnormalizer.go,sqlite_utc.go,sqlite_time_test.go}`、
   `backend/internal/runtime/manager.go`、`backend/internal/slb/{slb.go,swrr_remote.go,swrr_remote_test.go}`、
   `backend/internal/admin/tokenstats.go`（注释）、`deploy/e2e.py`、`.github/workflows/ci.yml`、
