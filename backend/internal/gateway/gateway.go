@@ -418,12 +418,20 @@ const (
 func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto adapter.Protocol,
 	cr *adapter.CanonicalRequest, up runtime.ResolvedUpstream, reqID string, ap *auditParams) forwardResult {
 
-	timeout := time.Duration(snap.General.DefaultTimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	// 流式请求不套总超时：长 SSE 流可能远超 DefaultTimeoutSeconds（如大模型逐 token
+	// 输出几十秒以上），套了会在中途 context.Canceled → scanner.Err() → 截断。
+	// 这与 WriteTimeout=0（"SSE 长连接不设总写超时"）的设计一致：流式仅受客户端断开
+	// 和上游自身行为约束。非流式仍用 DefaultTimeoutSeconds 总超时兜底慢上游。
+	ctx := c.Request.Context()
+	if !cr.Stream {
+		timeout := time.Duration(snap.General.DefaultTimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 120 * time.Second
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-	defer cancel()
 
 	req, err := adapter.BuildUpstreamRequest(up.Protocol, cr, up.UpstreamModel, up.BaseURL, up.APIKey)
 	if err != nil {

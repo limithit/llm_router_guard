@@ -1,6 +1,55 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-05（第十五轮：SQLite UTC 规范存储 + 热加载可见性修复 + SWRR 全局游标）
+最后更新：2026-09-09（第十六轮：流式请求解除总超时约束 + Quickstart 文档 + 测试机运维踩坑归档）
+
+## 本轮迭代变更（第十六轮）
+
+### 修复：流式请求不再受 `default_timeout_seconds` 总超时约束（用户报"流式只出一小段就中断"）
+- **排查结论**：先按"三上游轮询截断"复现——3 个 mock（各 20 分块×0.1s）+ 单别名 3 上游轮询，
+  抓原始响应体：**10/20 分块全到位 + `[DONE]`**，网关按上游到达顺序原样转发，无丢失。
+  结论：流式转发核心（SSE 逐行解析、`finish_reason:null` 判定、每块即 Flush、
+  `choices:[]` usage 块的 `len>0` 守卫）本身正确，E2E `gateway.stream` 亦通过。
+  → 截断不是转发核心 bug。
+- **定位到的真实缺陷**：`forward()` 对**流式与非流式共用**一个
+  `context.WithTimeout(c.Request.Context(), default_timeout_seconds)`，该 ctx 挂在上游请求上、
+  同样约束 `resp.Body` 的读取。长流一旦超过该值 → `scanner.Err()` 非 nil →
+  `"upstream stream interrupted"` → `frFatal` → 中途截断。
+  配置里 `WriteTimeout=0` 明写"SSE 长连接不设总写超时"，但**上游读取侧却仍吃这个总超时**，前后矛盾。
+- **修复** `internal/gateway/gateway.go forward()`：`cr.Stream` 为真时直接用
+  `c.Request.Context()`（仅受客户端断开约束），非流式仍保留 `default_timeout_seconds`
+  兜底慢上游。
+- **验证（反证式设计）**：把 `default_timeout_seconds` 设为 **2s**，mock 造 **~5s** 慢流
+  （10 块×0.5s）。修复前会在 2s 截断（约 3-4 块），修复后实测
+  `chunks=10 done=True unparseable=0`，access 日志 `POST /v1/chat/completions 5.02s`；
+  同一 2s 超时下非流式仍正常（mock 快回）。全量 20 步 E2E **20/20 通过**。
+- **给用户的补充判据**（若截断依然存在，按此排查）：① 输出护栏中途 stop——
+  `runStreamGuardCheck` 在策略为 `block` 时发 error 事件、`replace`（默认）时追加安全文案后收尾，
+  都是"前一小段 + 突然结束"的典型形态，且 `guard_enabled` 默认 true；② 上游自身提前关连接
+  （EOF 非错误，流会以已有内容正常收尾，日志无 error 行）；③ 客户端主动断开（ctx 取消，同上）。
+
+### 测试机（192.168.20.132）运维踩坑归档——本轮反复踩，务必记住
+- **18080 已被同机 `dlp-backend` 占用**：我们的服务起来后 `address already in use` 即退出，
+  但 18080 上的 `/healthz` 仍返回 `{"status":"ok"}`（是 dlp-backend 的），极易误判。
+  → 本轮改用 **18091**；`cleanup.sh` 不检查该端口，**不可**去杀 dlp-backend。
+- **`/tmp` 不可写**：`curl -o /tmp/x.json` 与 shell `> /tmp/x` 都不产出文件。
+  → 临时文件一律落在 `/root/gateway-test/`（RUNDIR）。
+- **`pkill -f mockup[.]py` 会杀掉自己的 ssh 会话**：同一命令行后段只要出现字面量
+  `mockup.py`（含 `mockup.py.new`、`mockup.py.new`），正则就匹配上本会话 bash -c 的
+  cmdline → 会话被杀、无任何输出、exit 1。→ **pkill 必须单独一个 ssh 调用**。
+- **scp 覆盖既有文件报 `Permission denied`**（`lsattr` 无 immutable、目录可写、touch 新文件正常，
+  原因未查清）：workaround = scp 到 `<name>.new` 再 `cp <name>.new <name>`。
+- **ssh 层剥掉内层双引号**：内层 `grep -E "a|b"` 会变成两个命令；含 `(` `)` 的 `echo` 需先去掉引号。
+  → 复杂逻辑一律写成文件再 `bash file.sh`，不要内联。
+
+### 文档：新增 `quickstart.md`（5 分钟从零跑通）
+- 8 节：前置条件 / 构建启动（含 CWD 语义：必须从 `backend/` 起，或显式 `FRONTEND_DIST`）/
+  首启安全三件事 / 首次转发全流程（供应商→别名→Key→curl→审计闭环）/ Compose /
+  换 MySQL·PG（AutoMigrate 与 `deploy/schema/` 基线 SQL 两条路）/ 多节点速览 / 开发模式 /
+  故障速查表。
+- 写前逐项对照真实代码校验：`/healthz`·`/metrics` 免认证而 `/v1/*` 带 Key、
+  API Key 为 `sk-`+32hex、账户安全页在右上角用户菜单（非左下角）、
+  调用日志**列表**不支持 request_id 过滤（只能走详情接口 `audit/calls/<id>`）。
+- README「快速开始」标题下加了指向 quickstart 的链接。
 
 ##  本轮迭代变更（第十五轮）
 

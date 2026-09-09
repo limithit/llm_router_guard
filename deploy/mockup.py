@@ -9,6 +9,10 @@ Endpoints:
 Behavior driven by user message content:
   contains __TRIGGER_OUTPUT__ -> reply contains SECRETWORD (output-guard test)
   otherwise                   -> reply is echo(<content>)
+
+Stream tuning (env, default = 2 chunks/50ms like the original):
+  MOCK_STREAM_CHUNKS  -> number of content chunks (interleaved slices, concat=reply)
+  MOCK_STREAM_DELAY    -> seconds to sleep between chunks (simulate slow upstream)
 """
 import json
 import os
@@ -54,7 +58,7 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
         if MODE == "bad":
-            print("CHAT bad-500", flush=True)  # 供日志计数验证流量是否到达本 mock
+            print("CHAT bad-500", flush=True)
             self._json({"error": {"message": "mock upstream failure",
                                   "type": "mock_error"}}, 500)
             return
@@ -87,16 +91,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
-        mid = len(reply) // 2
-        for part in (reply[:mid], reply[mid:]):
-            chunk = {"id": "cmpl-mock", "object": "chat.completion.chunk",
+        chunks = int(os.environ.get("MOCK_STREAM_CHUNKS", "2"))
+        delay = float(os.environ.get("MOCK_STREAM_DELAY", "0.05"))
+        tid = "cmpl-mock-%s" % os.getpid()
+        # 连续等分：恰好 chunks 段、拼接恒等于 reply（chunks=2 时等同原始前后对半）
+        n = len(reply)
+        pieces = [reply[i * n // chunks:(i + 1) * n // chunks] for i in range(chunks)]
+        for part in pieces:
+            chunk = {"id": tid, "object": "chat.completion.chunk",
                      "created": int(time.time()), "model": model,
                      "choices": [{"index": 0, "delta": {"content": part},
                                   "finish_reason": None}]}
             self.wfile.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
             self.wfile.flush()
-            time.sleep(0.05)
-        final = {"id": "cmpl-mock", "object": "chat.completion.chunk",
+            time.sleep(delay)
+        final = {"id": tid, "object": "chat.completion.chunk",
                  "created": int(time.time()), "model": model, "choices": [],
                  "usage": {"prompt_tokens": 11, "completion_tokens": 5,
                            "total_tokens": 16}}
