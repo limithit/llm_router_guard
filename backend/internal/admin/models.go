@@ -20,13 +20,14 @@ type upstreamOut struct {
 }
 
 type aliasOut struct {
-	ID        uint          `json:"id"`
-	Alias     string        `json:"alias"`
-	Enabled   bool          `json:"enabled"`
-	Remark    string        `json:"remark"`
-	Upstreams []upstreamOut `json:"upstreams"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID               uint          `json:"id"`
+	Alias            string        `json:"alias"`
+	Enabled          bool          `json:"enabled"`
+	Remark           string        `json:"remark"`
+	DefaultMaxTokens int           `json:"default_max_tokens"` // 0=不注入；请求未带 max_tokens 时由网关注入
+	Upstreams        []upstreamOut `json:"upstreams"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 func (s *Server) listModels(c *gin.Context) {
@@ -68,17 +69,19 @@ func (s *Server) listModels(c *gin.Context) {
 				ProviderEnabled: enabled[u.ProviderID], ProviderName: names[u.ProviderID], UpstreamModel: u.UpstreamModel, Weight: u.Weight})
 		}
 		out = append(out, aliasOut{ID: a.ID, Alias: a.Alias, Enabled: a.Enabled, Remark: a.Remark,
-			Upstreams: ups, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
+			DefaultMaxTokens: a.DefaultMaxTokens,
+			Upstreams:        ups, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
 	}
 	okPaged(c, out, int(total), page, size)
 }
 
 func (s *Server) createModel(c *gin.Context) {
 	var req struct {
-		Alias     string `json:"alias"`
-		Enabled   bool   `json:"enabled"`
-		Remark    string `json:"remark"`
-		Upstreams []struct {
+		Alias            string `json:"alias"`
+		Enabled          bool   `json:"enabled"`
+		Remark           string `json:"remark"`
+		DefaultMaxTokens int    `json:"default_max_tokens"`
+		Upstreams        []struct {
 			ProviderID    uint   `json:"provider_id"`
 			UpstreamModel string `json:"upstream_model"`
 			Weight        int    `json:"weight"`
@@ -88,7 +91,7 @@ func (s *Server) createModel(c *gin.Context) {
 		s.fail(c, 400, 40001, "请填写别名并至少添加一个上游")
 		return
 	}
-	a := model.ModelAlias{Alias: req.Alias, Enabled: req.Enabled, Remark: req.Remark}
+	a := model.ModelAlias{Alias: req.Alias, Enabled: req.Enabled, Remark: req.Remark, DefaultMaxTokens: req.DefaultMaxTokens}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&a).Error; err != nil {
 			return err
@@ -113,7 +116,8 @@ func (s *Server) createModel(c *gin.Context) {
 	s.mgr.Bump()
 	s.db.Preload("Upstreams").First(&a, a.ID)
 	s.ok(c, aliasOut{ID: a.ID, Alias: a.Alias, Enabled: a.Enabled, Remark: a.Remark,
-		Upstreams: toUpstreamOut(a.Upstreams, s), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
+		DefaultMaxTokens: a.DefaultMaxTokens,
+		Upstreams:        toUpstreamOut(a.Upstreams, s), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
 }
 
 func (s *Server) updateModel(c *gin.Context) {
@@ -124,10 +128,11 @@ func (s *Server) updateModel(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Alias     string `json:"alias"`
-		Enabled   bool   `json:"enabled"`
-		Remark    string `json:"remark"`
-		Upstreams []struct {
+		Alias            string `json:"alias"`
+		Enabled          bool   `json:"enabled"`
+		Remark           string `json:"remark"`
+		DefaultMaxTokens int    `json:"default_max_tokens"`
+		Upstreams        []struct {
 			ProviderID    uint   `json:"provider_id"`
 			UpstreamModel string `json:"upstream_model"`
 			Weight        int    `json:"weight"`
@@ -138,7 +143,7 @@ func (s *Server) updateModel(c *gin.Context) {
 		return
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		a.Alias, a.Enabled, a.Remark = req.Alias, req.Enabled, req.Remark
+		a.Alias, a.Enabled, a.Remark, a.DefaultMaxTokens = req.Alias, req.Enabled, req.Remark, req.DefaultMaxTokens
 		if err := tx.Save(&a).Error; err != nil {
 			return err
 		}
@@ -165,7 +170,8 @@ func (s *Server) updateModel(c *gin.Context) {
 	s.mgr.Bump()
 	s.db.Preload("Upstreams").First(&a, a.ID)
 	s.ok(c, aliasOut{ID: a.ID, Alias: a.Alias, Enabled: a.Enabled, Remark: a.Remark,
-		Upstreams: toUpstreamOut(a.Upstreams, s), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
+		DefaultMaxTokens: a.DefaultMaxTokens,
+		Upstreams:        toUpstreamOut(a.Upstreams, s), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
 }
 
 func (s *Server) deleteModel(c *gin.Context) {

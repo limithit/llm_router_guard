@@ -297,6 +297,13 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 				"invalid_request_error", "model_not_found")
 			return
 		}
+		// 别名级默认 max_tokens：请求未显式携带（0）时注入，兜底推理模型的厂商默认补全上限
+		// （如 sensenova glm 默认 ~1000 token，思维链即耗尽 → finish_reason 谎报 stop 的"截断"）。
+		if cr.MaxTokens == 0 {
+			if as := snap.AliasSettings[cr.Model]; as != nil && as.DefaultMaxTokens > 0 {
+				cr.MaxTokens = as.DefaultMaxTokens
+			}
+		}
 		if !apiKey.AllowsModel(cr.Model) {
 			ap.errMsg = "model not allowed for api key"
 			clientError(c, clientProto, http.StatusForbidden,

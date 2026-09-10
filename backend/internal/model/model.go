@@ -116,13 +116,16 @@ type Provider struct {
 // ---------- 模型别名与上游 (REQ-006) ----------
 
 type ModelAlias struct {
-	ID        uint            `gorm:"primaryKey" json:"id"`
-	Alias     string          `gorm:"uniqueIndex;size:64" json:"alias"`
-	Enabled   bool            `json:"enabled"`
-	Remark    string          `gorm:"size:255" json:"remark"`
-	Upstreams []AliasUpstream `gorm:"foreignKey:AliasID" json:"upstreams"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID      uint   `gorm:"primaryKey" json:"id"`
+	Alias   string `gorm:"uniqueIndex;size:64" json:"alias"`
+	Enabled bool   `json:"enabled"`
+	Remark  string `gorm:"size:255" json:"remark"`
+	// DefaultMaxTokens 别名级默认补全上限：客户端请求未带 max_tokens 时注入该值（0=不注入）。
+	// 推理模型厂商默认补全上限常只有 ~1000 token（思维链即耗尽），必须在别名上兜底。
+	DefaultMaxTokens int             `json:"default_max_tokens"`
+	Upstreams        []AliasUpstream `gorm:"foreignKey:AliasID" json:"upstreams"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 type AliasUpstream struct {

@@ -1,6 +1,23 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第十八轮：quickstart 补各 OS 启动方式 + max_tokens 透传语义说明）
+最后更新：2026-09-10（第十九轮：别名级默认 max_tokens 注入——终结 agent 场景"截断"）
+
+## 本轮迭代变更（第十九轮）
+
+### 网关：模型别名支持默认 max_tokens（请求未带时自动注入）
+- **背景（真实库调用日志定位）**：用户 agent 工作负载输出停在 `</think>` 后（completion_tokens=85），
+  大量请求被厂商 429（tpm/rpm）。实测发现 sensenova glm 客户端**不带 max_tokens 时厂商默认补全上限
+  仅 ~1000 token**（强制数 1→500 时 completion_tokens=999 截停且谎报 finish_reason=stop），思维链 +
+  agent 正文根本走不完 → "截断"。
+- **实现**：`model_aliases` 新增 `default_max_tokens`（0=不注入，AutoMigrate 自动加列）；
+  `Snapshot.AliasSettings` 别名级覆盖；网关在别名解析后、构造上游请求前：`cr.MaxTokens==0` 且别名配置
+  >0 则注入。上游请求体显式携带注入值，行为等同客户端自己带了该参数。
+- **管理面**：别名创建/更新 API 与列表响应带 `default_max_tokens`；前端模型别名表单新增
+  "默认 max_tokens" 输入（tooltip 说明推理模型建议 4096~131072）。
+- **实测（本地真实库 + sensenova glm-5.2）**：别名设 131072 后，不带 max_tokens 的"数到 1500"请求
+  completion_tokens=3500、finish=stop、1→1500 全部到达（未注入时必在 ~999 截停）。
+- 观测铺垫（第十八轮补丁，随本轮一并入库）：`call_logs.finish_reason` 列 + `[stream] ... done:
+  finish_reason=... content_bytes=... deltas_logged=...` 日志行。
 
 ## 本轮迭代变更（第十八轮）
 

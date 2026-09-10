@@ -219,6 +219,7 @@ export interface ModelAlias {
   alias: string;
   enabled: boolean;
   remark: string;
+  default_max_tokens: number; // 0=不注入；请求未带 max_tokens 时网关注入此值
   upstreams: Upstream[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -228,6 +229,7 @@ export interface ModelAliasInput {
   alias: string;
   enabled: boolean;
   remark?: string;
+  default_max_tokens?: number;
   upstreams: UpstreamInput[];
 }
 

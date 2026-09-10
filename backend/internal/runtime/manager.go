@@ -50,6 +50,11 @@ type ResolvedUpstream struct {
 	Weight        int    `json:"weight"`
 }
 
+// AliasSetting 别名级网关行为覆盖（从 model_aliases 行读取）。
+type AliasSetting struct {
+	DefaultMaxTokens int // 请求未带 max_tokens 时注入（0=不注入）
+}
+
 // Snapshot 是网关请求路径读取的唯一配置视图（加载后不可变）。
 type Snapshot struct {
 	Version        string
@@ -57,6 +62,7 @@ type Snapshot struct {
 	Providers      map[uint]*model.Provider
 	ProviderByName map[string]*model.Provider
 	Aliases        map[string][]ResolvedUpstream
+	AliasSettings  map[string]*AliasSetting // 按别名名查行为覆盖（与 Aliases 同名键）
 	APIKeys        map[string]*model.APIKey // key hash hex -> record
 	Keywords       []CompiledKeyword
 	PIIRules       []CompiledPII
@@ -98,7 +104,7 @@ func emptySnapshot() *Snapshot {
 		Version: "-", LoadedAt: time.Now(),
 		Counts:    map[string]int{},
 		Providers: map[uint]*model.Provider{}, ProviderByName: map[string]*model.Provider{},
-		Aliases: map[string][]ResolvedUpstream{}, APIKeys: map[string]*model.APIKey{},
+		Aliases: map[string][]ResolvedUpstream{}, AliasSettings: map[string]*AliasSetting{}, APIKeys: map[string]*model.APIKey{},
 		General: settings.DefaultGeneral(), Failover: settings.DefaultFailover(),
 		Output: settings.DefaultOutputFilter(), Security: settings.DefaultSecurity(),
 		Alerts: settings.DefaultQuotaAlerts(),
@@ -236,6 +242,9 @@ func (m *Manager) Reload(reason string) error {
 		}
 		if len(ups) > 0 {
 			snap.Aliases[a.Alias] = ups
+			if a.DefaultMaxTokens > 0 {
+				snap.AliasSettings[a.Alias] = &AliasSetting{DefaultMaxTokens: a.DefaultMaxTokens}
+			}
 		}
 	}
 

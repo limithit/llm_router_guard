@@ -35,6 +35,7 @@ interface ModelFormValues {
   alias: string;
   enabled: boolean;
   remark?: string;
+  default_max_tokens?: number;
   upstreams: Array<UpstreamInput & { provider_name?: string }>;
 }
 
@@ -95,6 +96,7 @@ export default function Models() {
       alias: record.alias,
       enabled,
       remark: record.remark,
+      default_max_tokens: record.default_max_tokens || 0,
       upstreams: record.upstreams.map((u) => ({
         provider_id: u.provider_id,
         upstream_model: u.upstream_model,
@@ -124,6 +126,7 @@ export default function Models() {
       alias: record.alias,
       enabled: record.enabled,
       remark: record.remark,
+      default_max_tokens: record.default_max_tokens || undefined,
       upstreams: record.upstreams.map((u) => ({
         provider_id: u.provider_id,
         upstream_model: u.upstream_model,
@@ -139,6 +142,7 @@ export default function Models() {
       alias: values.alias.trim(),
       enabled: values.enabled ?? true,
       remark: values.remark?.trim() || '',
+      default_max_tokens: values.default_max_tokens || 0,
       upstreams: (values.upstreams ?? [])
         .filter((u) => u.provider_id != null && u.upstream_model)
         .map((u) => ({ provider_id: u.provider_id, upstream_model: u.upstream_model.trim(), weight: u.weight })),
@@ -274,6 +278,14 @@ export default function Models() {
             </Form.Item>
             <Form.Item name="remark" label={t('common.remark')} style={{ width: 200 }}>
               <Input placeholder={t('models.remarkPh')} />
+            </Form.Item>
+            <Form.Item
+              name="default_max_tokens"
+              label={t('models.defaultMaxTokensLabel')}
+              tooltip={t('models.defaultMaxTokensTip')}
+              rules={[{ type: 'number', min: 0, message: t('models.defaultMaxTokensRange') }]}
+            >
+              <InputNumber min={0} precision={0} placeholder="0" style={{ width: 140 }} />
             </Form.Item>
           </Space>
 
