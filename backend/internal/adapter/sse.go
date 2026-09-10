@@ -12,8 +12,9 @@ import (
 // UpstreamChunk 上游 SSE data 行解析结果。
 type UpstreamChunk struct {
 	TextDelta      string
-	ReasoningDelta string // 推理模型思维链增量（GLM/DeepSeek 风格 delta.reasoning_content）
-	FinishReason   string // 上游最终 finish_reason（stop/length/...，非 final 块为空）
+	ReasoningDelta string          // 推理模型思维链增量（GLM/DeepSeek 风格 delta.reasoning_content）
+	ToolCalls      json.RawMessage // openai_chat delta.tool_calls 增量（原样转发）
+	FinishReason   string          // 上游最终 finish_reason（stop/length/...，非 final 块为空）
 	Usage          *Usage
 	Finish         bool
 	Err            string
@@ -30,8 +31,9 @@ func ParseUpstreamData(p Protocol, data string) UpstreamChunk {
 		var r struct {
 			Choices []struct {
 				Delta struct {
-					Content   string `json:"content"`
-					Reasoning string `json:"reasoning_content"`
+					Content   string          `json:"content"`
+					Reasoning string          `json:"reasoning_content"`
+					ToolCalls json.RawMessage `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -53,6 +55,7 @@ func ParseUpstreamData(p Protocol, data string) UpstreamChunk {
 		if len(r.Choices) > 0 {
 			out.TextDelta = r.Choices[0].Delta.Content
 			out.ReasoningDelta = r.Choices[0].Delta.Reasoning
+			out.ToolCalls = r.Choices[0].Delta.ToolCalls
 			if r.Choices[0].FinishReason != nil {
 				out.Finish = *r.Choices[0].FinishReason != ""
 				out.FinishReason = *r.Choices[0].FinishReason
@@ -227,6 +230,17 @@ func (s *SSEWriter) Reasoning(text string) error {
 	}
 }
 
+// ToolCalls 输出 openai_chat 工具调用增量（原样透传，含 index/id/function 分片）。
+// anthropic / responses 客户端协议的工具调用转写未实现，静默跳过。
+func (s *SSEWriter) ToolCalls(raw json.RawMessage) error {
+	if len(raw) == 0 || s.proto != ProtoOpenAIChat {
+		return nil
+	}
+	return s.raw("data: " + fmt.Sprintf(
+		`{"id":"%s","object":"chat.completion.chunk","created":0,"model":"%s","choices":[{"index":0,"delta":{"tool_calls":%s},"finish_reason":null}]}`,
+		s.id, s.model, string(raw)) + "\n\n")
+}
+
 // Finalize 正常收尾（含 usage）。finish 为上游真实 finish_reason（stop/length/...），
 // 空串按 stop 处理；anthropic 映射 stop→end_turn、length→max_tokens。
 func (s *SSEWriter) Finalize(usage Usage, finish string) error {
@@ -311,6 +325,9 @@ func BuildCompletionJSON(clientProto Protocol, resp *CanonicalResponse) []byte {
 		msg := map[string]any{"role": "assistant", "content": resp.Content}
 		if resp.Reasoning != "" {
 			msg["reasoning_content"] = resp.Reasoning
+		}
+		if len(resp.ToolCalls) > 0 {
+			msg["tool_calls"] = json.RawMessage(resp.ToolCalls)
 		}
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "object": "chat.completion", "created": 0, "model": resp.Model,

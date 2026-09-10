@@ -21,8 +21,11 @@ const (
 )
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCallID string          `json:"tool_call_id,omitempty"` // role=tool 的结果消息关联 ID
+	Name       string          `json:"name,omitempty"`         // tool 消息的函数名
+	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`   // assistant 历史中的工具调用（原样透传）
 }
 
 type CanonicalRequest struct {
@@ -32,6 +35,10 @@ type CanonicalRequest struct {
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Temperature *float64  `json:"temperature,omitempty"`
 	TopP        *float64  `json:"top_p,omitempty"`
+	// Tools/ToolChoice openai_chat 客户端的函数调用定义，原样透传（agent 场景必需：
+	// 丢弃后模型会把工具调用当纯文本输出，agent turn 直接中断）。
+	Tools      json.RawMessage `json:"-"`
+	ToolChoice json.RawMessage `json:"-"`
 }
 
 type Usage struct {
@@ -40,12 +47,13 @@ type Usage struct {
 }
 
 type CanonicalResponse struct {
-	ID           string `json:"id"`
-	Model        string `json:"model"`
-	Content      string `json:"content"`
-	Reasoning    string `json:"reasoning"` // 推理模型思维链（GLM/DeepSeek reasoning_content）
-	FinishReason string `json:"finish_reason"`
-	Usage        Usage  `json:"usage"`
+	ID           string          `json:"id"`
+	Model        string          `json:"model"`
+	Content      string          `json:"content"`
+	Reasoning    string          `json:"reasoning"`            // 推理模型思维链（GLM/DeepSeek reasoning_content）
+	ToolCalls    json.RawMessage `json:"tool_calls,omitempty"` // openai_chat message.tool_calls（非流式）
+	FinishReason string          `json:"finish_reason"`
+	Usage        Usage           `json:"usage"`
 }
 
 // ---- 入站解析 ----
@@ -70,6 +78,8 @@ func parseOpenAIChat(body []byte) (*CanonicalRequest, error) {
 		MaxTokens   int             `json:"max_tokens"`
 		Temperature *float64        `json:"temperature"`
 		TopP        *float64        `json:"top_p"`
+		Tools       json.RawMessage `json:"tools"`
+		ToolChoice  json.RawMessage `json:"tool_choice"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("invalid JSON body: %w", err)
@@ -78,16 +88,21 @@ func parseOpenAIChat(body []byte) (*CanonicalRequest, error) {
 		return nil, fmt.Errorf("model is required")
 	}
 	var msgs []struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content"`
+		ToolCallID string          `json:"tool_call_id"`
+		Name       string          `json:"name"`
+		ToolCalls  json.RawMessage `json:"tool_calls"`
 	}
 	if err := json.Unmarshal(raw.Messages, &msgs); err != nil {
 		return nil, fmt.Errorf("invalid messages: %w", err)
 	}
 	cr := &CanonicalRequest{Model: raw.Model, Stream: raw.Stream,
-		MaxTokens: raw.MaxTokens, Temperature: raw.Temperature, TopP: raw.TopP}
+		MaxTokens: raw.MaxTokens, Temperature: raw.Temperature, TopP: raw.TopP,
+		Tools: raw.Tools, ToolChoice: raw.ToolChoice}
 	for _, m := range msgs {
-		cr.Messages = append(cr.Messages, Message{Role: m.Role, Content: extractContentText(m.Content)})
+		cr.Messages = append(cr.Messages, Message{Role: m.Role, Content: extractContentText(m.Content),
+			ToolCallID: m.ToolCallID, Name: m.Name, ToolCalls: m.ToolCalls})
 	}
 	return cr, nil
 }
@@ -257,9 +272,26 @@ func buildOpenAIRequest(p Protocol, cr *CanonicalRequest, model, baseURL, apiKey
 	} else {
 		msgs := make([]map[string]any, 0, len(cr.Messages))
 		for _, m := range cr.Messages {
-			msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
+			msg := map[string]any{"role": m.Role, "content": m.Content}
+			if m.ToolCallID != "" {
+				msg["tool_call_id"] = m.ToolCallID
+			}
+			if m.Name != "" {
+				msg["name"] = m.Name
+			}
+			if len(m.ToolCalls) > 0 {
+				msg["tool_calls"] = json.RawMessage(m.ToolCalls)
+			}
+			msgs = append(msgs, msg)
 		}
 		payload["messages"] = msgs
+		// 函数调用透传（openai_chat 上游；responses 上游工具格式不同，暂不注入）
+		if len(cr.Tools) > 0 {
+			payload["tools"] = json.RawMessage(cr.Tools)
+		}
+		if len(cr.ToolChoice) > 0 {
+			payload["tool_choice"] = json.RawMessage(cr.ToolChoice)
+		}
 		endpoint = "/chat/completions"
 	}
 	if cr.Stream {
@@ -348,8 +380,9 @@ func ParseCompletion(p Protocol, body []byte) (*CanonicalResponse, error) {
 			} `json:"usage"`
 			Choices []struct {
 				Message struct {
-					Content   string `json:"content"`
-					Reasoning string `json:"reasoning_content"`
+					Content   string          `json:"content"`
+					Reasoning string          `json:"reasoning_content"`
+					ToolCalls json.RawMessage `json:"tool_calls"`
 				} `json:"message"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -361,6 +394,7 @@ func ParseCompletion(p Protocol, body []byte) (*CanonicalResponse, error) {
 		if len(r.Choices) > 0 {
 			out.Content = r.Choices[0].Message.Content
 			out.Reasoning = r.Choices[0].Message.Reasoning
+			out.ToolCalls = r.Choices[0].Message.ToolCalls
 			if r.Choices[0].FinishReason != "" {
 				out.FinishReason = r.Choices[0].FinishReason
 			}

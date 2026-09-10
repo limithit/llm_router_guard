@@ -1,6 +1,27 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第十九轮：别名级默认 max_tokens 注入——终结 agent 场景"截断"）
+最后更新：2026-09-10（第二十轮：openai_chat 工具调用全链路透传——agent 场景"截断"的真正根因）
+
+## 本轮迭代变更（第二十轮）
+
+### 网关：openai_chat tools 全透传（请求定义 + 流式/非流式工具调用响应）
+- **根因（真实库 call_logs id=77 铁证）**：用户 agent（DeepSeek Harness 走网关）请求携带 `tools`，
+  网关转换层将其丢弃 → 上游模型不知道工具存在，把工具调用当**纯文本**输出
+  `<tool_call>glob(pattern: "**/quickstart.md")</think>` 后 16 token 即停（finish=stop）。
+  agent 收不到结构化 tool_calls → turn 直接中断，表象仍是"截断"。此前思维链透传（第十七轮）与
+  别名默认 max_tokens（第十九轮）解决的是另两层，这是第三层。
+- **请求侧**：`CanonicalRequest` 增加 `Tools`/`ToolChoice`（json.RawMessage 原样透传）；
+  `Message` 增加 `tool_call_id`/`name`/`tool_calls`（工具结果消息与 assistant 历史工具调用，
+  agent 多轮循环必需）；buildOpenAIRequest 在 openai_chat 上游注入以上字段（护栏输入检测/PII
+  脱敏仍作用于消息文本，不受影响）。
+- **响应侧**：流式 `delta.tool_calls` 分片逐块原样转发（SSEWriter.ToolCalls，仅 openai_chat 客户端，
+  anthropic/responses 客户端暂静默跳过）；`finish_reason=tool_calls` 透传；非流式
+  `message.tool_calls` 解析并输出。流式侧网关按 index 合并 id/name/arguments 分片，结束后以
+  `<tool_call>{"name":...,"arguments":...}</tool_call>` 并入审计文本（护栏与 output_text 可见，
+  usage 估算包含工具参数）。
+- **实测（本地真实库 + sensenova glm-5.2）**：带 glob 工具的请求 → 7 个 tool_calls 分片正确转发、
+  finish=tool_calls；带工具结果的第二跳（tool_call_id 关联）上游正常接受，模型基于结果作答
+  finish=stop——agent 完整循环打通。
 
 ## 本轮迭代变更（第十九轮）
 

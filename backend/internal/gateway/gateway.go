@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -531,7 +532,14 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
-	ap.output = guard.MaskForLog(snap, cr.Content)
+	if len(cr.ToolCalls) > 0 {
+		usage.Completion += len(cr.ToolCalls) / 4 // 工具参数 token 粗估并入配额
+		cr.Usage = usage
+		ap.completionTokens = usage.Completion
+		ap.output = guard.MaskForLog(snap, cr.Content+" "+string(cr.ToolCalls))
+	} else {
+		ap.output = guard.MaskForLog(snap, cr.Content)
+	}
 	ap.status = "ok"
 
 	out := adapter.BuildCompletionJSON(clientProto, cr)
@@ -567,6 +575,14 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	nextCheck := threshold
 	stopped := false
 
+	// 工具调用增量按 index 合并（id/name 在首个分片，arguments 跨块拼接），
+	// 结束后并入审计文本，保证护栏与调用日志能看到模型调了什么工具。
+	type toolCallBuf struct {
+		id, name string
+		args     strings.Builder
+	}
+	toolCalls := map[int]*toolCallBuf{}
+
 	sawFinish := false
 	finishReason := ""
 	for scanner.Scan() {
@@ -593,6 +609,38 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 		if chunk.ReasoningDelta != "" {
 			_ = sw.Reasoning(chunk.ReasoningDelta)
+		}
+		if len(chunk.ToolCalls) > 0 {
+			var dts []struct {
+				Index    *int   `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			}
+			if json.Unmarshal(chunk.ToolCalls, &dts) == nil {
+				for _, dt := range dts {
+					idx := 0
+					if dt.Index != nil {
+						idx = *dt.Index
+					}
+					buf := toolCalls[idx]
+					if buf == nil {
+						buf = &toolCallBuf{}
+						toolCalls[idx] = buf
+					}
+					if dt.ID != "" {
+						buf.id = dt.ID
+					}
+					if dt.Function.Name != "" {
+						buf.name = dt.Function.Name
+					}
+					buf.args.WriteString(dt.Function.Arguments)
+				}
+			}
+			_ = sw.ToolCalls(chunk.ToolCalls)
 		}
 		if chunk.TextDelta != "" {
 			acc.WriteString(chunk.TextDelta)
@@ -632,6 +680,19 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		// 读到 EOF 也没见到 finish_reason/[DONE]：上游把流掐了（网络/网关/上游侧超时）。
 		// 此前被当成功（RecordSuccess + usage 估算），排障时完全隐身——必须显式留痕。
 		log.Printf("[stream] %s %s finished early: upstream closed before finish signal (accumulated %d bytes)", up.ProviderName, up.UpstreamModel, acc.Len())
+	}
+
+	// 工具调用并入累积文本：输出护栏与调用日志（output_text）由此可见模型实际调用了什么。
+	if len(toolCalls) > 0 {
+		idxs := make([]int, 0, len(toolCalls))
+		for i := range toolCalls {
+			idxs = append(idxs, i)
+		}
+		sort.Ints(idxs)
+		for _, i := range idxs {
+			tc := toolCalls[i]
+			fmt.Fprintf(&acc, `<tool_call>{"name":%q,"arguments":%s}</tool_call>`, tc.name, tc.args.String())
+		}
 	}
 
 	// 流结束兜底检测：短输出（不足阈值）或最后一个未达阈值的尾部此前未被检测，
