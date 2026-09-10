@@ -63,6 +63,9 @@ type Snapshot struct {
 	ProviderByName map[string]*model.Provider
 	Aliases        map[string][]ResolvedUpstream
 	AliasSettings  map[string]*AliasSetting // 按别名名查行为覆盖（与 Aliases 同名键）
+	// UpstreamModels 隐式模型目录：上游真实模型名 → 去重后的（供应商,模型）上游组。
+	// 客户端请求的 model 不是别名时按此直调上游真实模型名（别名优先）。
+	UpstreamModels map[string][]ResolvedUpstream
 	APIKeys        map[string]*model.APIKey // key hash hex -> record
 	Keywords       []CompiledKeyword
 	PIIRules       []CompiledPII
@@ -104,7 +107,8 @@ func emptySnapshot() *Snapshot {
 		Version: "-", LoadedAt: time.Now(),
 		Counts:    map[string]int{},
 		Providers: map[uint]*model.Provider{}, ProviderByName: map[string]*model.Provider{},
-		Aliases: map[string][]ResolvedUpstream{}, AliasSettings: map[string]*AliasSetting{}, APIKeys: map[string]*model.APIKey{},
+		Aliases: map[string][]ResolvedUpstream{}, AliasSettings: map[string]*AliasSetting{},
+		UpstreamModels: map[string][]ResolvedUpstream{}, APIKeys: map[string]*model.APIKey{},
 		General: settings.DefaultGeneral(), Failover: settings.DefaultFailover(),
 		Output: settings.DefaultOutputFilter(), Security: settings.DefaultSecurity(),
 		Alerts: settings.DefaultQuotaAlerts(),
@@ -219,9 +223,10 @@ func (m *Manager) Reload(reason string) error {
 
 	// --- 模型别名 → 解析上游 ---
 	var aliases []model.ModelAlias
-	if err := m.db.Preload("Upstreams").Find(&aliases).Error; err != nil {
+	if err := m.db.Preload("Upstreams").Order("id").Find(&aliases).Error; err != nil {
 		loadErrs = append(loadErrs, "model_aliases: "+err.Error())
 	}
+	seenImplicit := map[string]map[uint]bool{} // 上游模型名 → 已收录供应商集合
 	for _, a := range aliases {
 		if !a.Enabled {
 			continue
@@ -236,9 +241,18 @@ func (m *Manager) Reload(reason string) error {
 			if w <= 0 {
 				w = 1
 			}
-			ups = append(ups, ResolvedUpstream{ProviderID: p.ID, ProviderName: p.Name,
+			ru := ResolvedUpstream{ProviderID: p.ID, ProviderName: p.Name,
 				Protocol: p.Protocol, BaseURL: p.BaseURL, APIKey: p.APIKey,
-				UpstreamModel: u.UpstreamModel, Weight: w})
+				UpstreamModel: u.UpstreamModel, Weight: w}
+			ups = append(ups, ru)
+			// 隐式模型目录：同一（模型名, 供应商）只收录一次（跨别名去重，权重取首次出现）
+			if seenImplicit[u.UpstreamModel] == nil {
+				seenImplicit[u.UpstreamModel] = map[uint]bool{}
+			}
+			if !seenImplicit[u.UpstreamModel][p.ID] {
+				seenImplicit[u.UpstreamModel][p.ID] = true
+				snap.UpstreamModels[u.UpstreamModel] = append(snap.UpstreamModels[u.UpstreamModel], ru)
+			}
 		}
 		if len(ups) > 0 {
 			snap.Aliases[a.Alias] = ups

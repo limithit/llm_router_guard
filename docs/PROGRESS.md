@@ -1,6 +1,26 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第二十二轮：Claude Code 接入适配——[1m] 后缀容错 + count_tokens + 别名启用）
+最后更新：2026-09-10（第二十三轮：隐式模型名直调——无别名也能用上游真实模型名）
+
+## 本轮迭代变更（第二十三轮）
+
+### 网关：隐式模型解析（model 不是别名时按上游真实模型名直调）
+- **用户指出的设计缺口**：上游本来就有 `glm-5.2` 这个模型，客户端直用真实模型名却必须先建同名
+  别名，不合理。
+- **实现**：快照新增隐式模型目录 `UpstreamModels`（上游模型名 → 去重后的 供应商+模型 上游组，
+  取自启用别名引用且供应商启用的上游，权重沿用首次出现）；解析链变为
+  **精确别名 → 剥 `[...]` 后缀别名 → 隐式模型名** 三级；404 错误信息同步更新
+  （"not a configured alias and no upstream serves this model name"）；`/v1/models` 一并暴露
+  隐式模型名（第三方客户端的模型校验才能通过）。
+- **语义**：别名优先于隐式（别名携带 default_max_tokens 等配置）；隐式组无别名级配置——
+  不带 max_tokens 时由厂商默认值兜底，推理模型仍建议配别名。限流/配额按请求的模型名记账，
+  行为一致。
+- **实测（本地真实库 + sensenova 上游）**：禁用 `glm-5.2` 别名后，model=`glm-5.2` 直调
+  /v1/messages 成功（日志 `resolved implicitly by upstream model name (3 provider(s))`，
+  正常 anthropic 响应 end_turn）；`/v1/models` 在别名禁用时仍列出 `glm-5.2`；恢复别名启用
+  （default_max_tokens=131072）后一切不变。
+- 另：`TestAuditWSHandshakePushAndClose` 为预存在的时序竞态（订阅注册 vs 立即写入审计），
+  ok/FAIL 交替，与本轮改动无关，待单独修。
 
 ## 本轮迭代变更（第二十二轮）
 

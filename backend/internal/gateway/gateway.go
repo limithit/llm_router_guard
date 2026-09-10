@@ -127,12 +127,23 @@ func (s *Server) ListModels(c *gin.Context) {
 	snap := s.mgr.Get()
 	rec := c.MustGet("apikey").(*model.APIKey) // AuthMiddleware 已注入
 
-	names := make([]string, 0, len(snap.Aliases))
+	names := make([]string, 0, len(snap.Aliases)+len(snap.UpstreamModels))
 	for name := range snap.Aliases {
 		if !rec.AllowsModel(name) {
 			continue
 		}
 		names = append(names, name)
+	}
+	// 隐式模型名（上游真实模型，未建别名也可直调）一并暴露，客户端模型校验才能通过
+	nameSet := map[string]bool{}
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	for name := range snap.UpstreamModels {
+		if !nameSet[name] && rec.AllowsModel(name) {
+			names = append(names, name)
+			nameSet[name] = true
+		}
 	}
 	sort.Strings(names)
 
@@ -330,9 +341,17 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 			}
 		}
 		if !ok {
+			// 隐式解析：model 不是别名时按上游真实模型名直调（从启用别名引用的上游里按
+			// 供应商+模型名去重组组）。别名优先，隐式组无别名级配置（如默认 max_tokens）。
+			if iups := snap.UpstreamModels[cr.Model]; len(iups) > 0 {
+				log.Printf("[gateway] model %q is not a configured alias; resolved implicitly by upstream model name (%d provider(s))", cr.Model, len(iups))
+				ups, ok = iups, true
+			}
+		}
+		if !ok {
 			ap.errMsg = "unknown model alias: " + cr.Model
 			clientError(c, clientProto, http.StatusNotFound,
-				fmt.Sprintf("unknown model %q: not a configured alias", cr.Model),
+				fmt.Sprintf("unknown model %q: not a configured alias and no upstream serves this model name", cr.Model),
 				"invalid_request_error", "model_not_found")
 			return
 		}
