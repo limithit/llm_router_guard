@@ -1,6 +1,33 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第二十轮：openai_chat 工具调用全链路透传——agent 场景"截断"的真正根因）
+最后更新：2026-09-10（第二十一轮：三协议工具调用转写——anthropic/responses 客户端接入 agent 场景）
+
+## 本轮迭代变更（第二十一轮）
+
+### 适配层：工具调用升级为协议无关中间表示，补齐 anthropic / responses 客户端转写
+- **规范结构**：`CanonicalTool{Parameters=JSON Schema}` / `CanonicalToolChoice{auto|none|required|tool}` /
+  `CanonicalToolCall{ID,Name,Arguments=JSON字符串}` / 流式 `ToolCallDelta{ToolIndex,ID,Name,ArgsDelta}`，
+  替换第二十轮的 openai 原形 RawMessage（跨协议转写的地基）。
+- **请求侧（客户端→上游）**：
+  - anthropic：`tools[{name,description,input_schema}]` → 规范；`tool_choice{auto|any|tool}` 映射
+    auto/required/tool；content 块解析——`tool_use`→assistant.tool_calls（input 对象→字符串）、
+    `tool_result`→独立 role=tool 消息（openai 语义）；openai_chat 上游侧反序列化回嵌套 function 形态。
+  - responses：扁平 `tools[{type:function,name,...}]`；`function_call`/`function_call_output` 输入项 ↔
+    规范消息；openai_chat 上游侧转换。
+  - anthropic 上游（buildAnthropicRequest）同步支持：工具结果→user 消息 tool_result 块、
+    assistant 历史工具调用→tool_use 块（input 强制 JSON 对象，非法/空回退 {}）、tools+tool_choice 注入。
+- **响应侧（上游→客户端）**：上游流式统一解析为 `ToolCallDelta`（openai tool index / anthropic
+  block index / responses output_index 三种序号空间各自一致）：
+  - anthropic 客户端：自动管理 content block（文本块 0 → 工具块 1..n，开闭配对），
+    `content_block_start(tool_use)`+`input_json_delta`+`stop_reason: tool_calls→tool_use`；
+    非流式 tool_use 块 input 对象化。
+  - responses 客户端：`output_item.added`+`function_call_arguments.delta`+`response.completed`
+    （output 回填完整 function_call 项与 usage）；非流式 function_call 输出项。
+  - openai_chat 客户端：保持分片重建转发 + `finish_reason=tool_calls` 透传（回归通过）。
+  - anthropic 非流式响应新增 thinking 块（上游 reasoning_content 带入），stop_reason 全映射。
+- **实测（本地真实库 + sensenova glm-5.2 上游）**：anthropic 流式（文本块闭合→工具块→6 参数分片→
+  stop_reason=tool_use）、anthropic 非流式（thinking+tool_use+stop_reason=tool_use）、responses 流式
+  （added→7 分片→completed 完整项）、openai_chat 回归（7 分片+tool_calls）——四条路径全通。
 
 ## 本轮迭代变更（第二十轮）
 

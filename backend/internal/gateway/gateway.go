@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -533,10 +532,14 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
 	if len(cr.ToolCalls) > 0 {
-		usage.Completion += len(cr.ToolCalls) / 4 // 工具参数 token 粗估并入配额
+		var tb strings.Builder
+		for _, tc := range cr.ToolCalls {
+			fmt.Fprintf(&tb, `<tool_call>{"name":%q,"arguments":%s}</tool_call> `, tc.Name, tc.Arguments)
+		}
+		usage.Completion += tb.Len() / 4 // 工具参数 token 粗估并入配额
 		cr.Usage = usage
 		ap.completionTokens = usage.Completion
-		ap.output = guard.MaskForLog(snap, cr.Content+" "+string(cr.ToolCalls))
+		ap.output = guard.MaskForLog(snap, cr.Content+" "+tb.String())
 	} else {
 		ap.output = guard.MaskForLog(snap, cr.Content)
 	}
@@ -610,37 +613,20 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		if chunk.ReasoningDelta != "" {
 			_ = sw.Reasoning(chunk.ReasoningDelta)
 		}
-		if len(chunk.ToolCalls) > 0 {
-			var dts []struct {
-				Index    *int   `json:"index"`
-				ID       string `json:"id"`
-				Type     string `json:"type"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
+		for _, d := range chunk.ToolCallDeltas {
+			buf := toolCalls[d.ToolIndex]
+			if buf == nil {
+				buf = &toolCallBuf{}
+				toolCalls[d.ToolIndex] = buf
 			}
-			if json.Unmarshal(chunk.ToolCalls, &dts) == nil {
-				for _, dt := range dts {
-					idx := 0
-					if dt.Index != nil {
-						idx = *dt.Index
-					}
-					buf := toolCalls[idx]
-					if buf == nil {
-						buf = &toolCallBuf{}
-						toolCalls[idx] = buf
-					}
-					if dt.ID != "" {
-						buf.id = dt.ID
-					}
-					if dt.Function.Name != "" {
-						buf.name = dt.Function.Name
-					}
-					buf.args.WriteString(dt.Function.Arguments)
-				}
+			if d.ID != "" {
+				buf.id = d.ID
 			}
-			_ = sw.ToolCalls(chunk.ToolCalls)
+			if d.Name != "" {
+				buf.name = d.Name
+			}
+			buf.args.WriteString(d.ArgsDelta)
+			_ = sw.ToolCallDelta(d)
 		}
 		if chunk.TextDelta != "" {
 			acc.WriteString(chunk.TextDelta)
