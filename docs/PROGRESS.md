@@ -1,6 +1,19 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第十七轮：推理模型思维链透传——"流式只出一小段就结束"的真正根因）
+最后更新：2026-09-10（第十八轮：quickstart 补各 OS 启动方式 + max_tokens 透传语义说明）
+
+## 本轮迭代变更（第十八轮）
+
+### 文档：quickstart.md 生产启动方式（三平台）与 max_tokens 语义
+- **新增「各 OS 生产启动方式」节**：Linux systemd（unit 文件全文 + 硬化项 ProtectSystem/ReadWritePaths +
+  journalctl 看日志）、Windows 计划任务（Register-ScheduledTask 开机自启 + 崩溃重启；生产建议 NSSM 注册
+  真服务）、macOS launchd（plist 全文 + load/unload）。环境变量统一用 EnvironmentFile / AppEnvironmentExtra /
+  plist dict 三种给法；另附裸进程 nohup/Start-Process 调试法。
+- **max_tokens 语义澄清**：网关**不校验不钳制、客户端设多大透传多大**（唯一例外 anthropic 上游
+  `maxInt(max_tokens, 4096)` 兜底）；超厂商区间会原样回其 4xx（实测 sensenova glm-5.2 报
+  `should be in [1, 131072]`，即 1M 这类值由厂商拒绝、调到区间内即可）。故障速查表补两行：
+  厂商 MaxTokens 区间 400、推理模型空回答+finish=length（思维链烧预算）。
+- 文档同步 vite dev 端口 5173→5174（与已入库的 vite.config.ts 一致）。
 
 ## 本轮迭代变更（第十七轮）
 

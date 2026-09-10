@@ -67,6 +67,15 @@ curl -s http://localhost:8080/v1/chat/completions \
 # 流式加 "stream": true（SSE 透传）；Anthropic 客户端协议走 /v1/messages，Responses 走 /v1/responses
 ```
 
+> **关于 `max_tokens`**：网关只做**参数透传、不做钳制**——客户端设多大就原样转发给上游（可在
+> `max_tokens` 与单模型实际上限之间取值，如需极大量级直接写 `max_tokens: 1000000` 也可，
+> 是否接受由上游厂商定：超出厂商区间会原样返回其 4xx 报错，如
+> `upstream returned 400: field MaxTokens invalid, should be in [1, 131072]`，把值调到区间内即可）。
+> **推理模型（GLM/DeepSeek 风格）务必调大**：思维链（`reasoning_content`）与正文共享 max_tokens
+> 预算，值太小（如 300）会在思维链阶段就触发 `finish_reason=length`，客户端只能看到
+> 空回答或极短正文。网关会完整透传思维链增量（openai_chat 的 `delta.reasoning_content` /
+> anthropic 的 `thinking_delta`），SDK 识别即可展示思维链。
+
 5. 验证闭环：**审计 → 调用日志** 应出现该次请求（Token 用量/延迟/护栏判定）；
    带请求头 `-H "X-Request-ID: my-trace-1"` 时，响应头原样回带同值，
    并可用详情接口按该 ID 精确定位记录：`GET /api/admin/v1/audit/calls/my-trace-1`（需管理端 JWT）。
@@ -121,12 +130,119 @@ MFA 二步票据（LB 后任意实例可完成二步登录）、SWRR 全局轮�
 
 ```bash
 cd backend && go run ./cmd/server          # 终端 1：后端 :8080
-cd frontend && npm install && npm run dev  # 终端 2：Vite :5173，/api 与 /v1 自动代理到 8080
+cd frontend && npm install && npm run dev  # 终端 2：Vite dev（端口见 frontend/vite.config.ts，默认 5174），/api 与 /v1 自动代理到 8080
 ```
 
-改前端代码保存即生效（http://localhost:5173）；改后端 `go run` 重启即可。
+改前端代码保存即生效（http://localhost:5174）；改后端 `go run` 重启即可。
 
-## 8. 故障速查
+## 8. 各 OS 生产启动方式
+
+单二进制 + 环境变量即可托管。通用前提（三平台一致）：
+
+```bash
+# 环境变量（生产必改，缺省值见 .env.template）
+PORT=8080 DB_TYPE=sqlite DB_DSN=/var/lib/llm-router-guard/gateway.db \
+JWT_SECRET=换掉 MASTER_KEY=换掉 ADMIN_PASSWORD=换掉
+```
+
+### Linux — systemd（推荐）
+
+```bash
+# 1) 建专用用户与数据目录
+sudo useradd -r -s /usr/sbin/nologin llmrg
+sudo mkdir -p /opt/llm-router-guard /var/lib/llm-router-guard
+sudo cp bin/llm-router-guard /opt/llm-router-guard/   # 二进制（含 web/dist 同目录或 FRONTEND_DIST 指定）
+sudo chown -R llmrg:llmrg /opt/llm-router-guard /var/lib/llm-router-guard
+
+# 2) /etc/systemd/system/llm-router-guard.service
+[Unit]
+Description=LLM Router Guard gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=llmrg
+Group=llmrg
+WorkingDirectory=/opt/llm-router-guard
+EnvironmentFile=/opt/llm-router-guard/llmrg.env     # KEY=VALUE 每行一条
+ExecStart=/opt/llm-router-guard/llm-router-guard
+Restart=on-failure
+RestartSec=3
+# 硬化（可选）：服务只写自己的数据目录
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/llm-router-guard
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+
+# 3) 起服务 + 开机自启 + 看日志
+sudo systemctl daemon-reload
+sudo systemctl enable --now llm-router-guard
+systemctl status llm-router-guard          # 状态
+sudo journalctl -u llm-router-guard -f     # 实时日志（含 [stream]/[upstream] 行）
+```
+
+改 `llmrg.env` 后 `sudo systemctl restart llm-router-guard` 生效（应用内热改的配置走管理页，无需重启）。
+
+### Windows — 计划任务（开机自启，无第三方依赖）
+
+```powershell
+# 管理员 PowerShell：开机自启 + 崩溃自动重启（任务计划程序兜底）
+$action  = New-ScheduledTaskAction -Execute "F:\llm_router_guard\backend\bin\server.exe" `
+           -WorkingDirectory "F:\llm_router_guard\backend"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+           -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName "llm-router-guard" -Action $action -Trigger $trigger `
+  -Settings $settings -User "SYSTEM" -RunLevel Highest
+Start-ScheduledTask -TaskName "llm-router-guard"   # 立即启动
+Get-ScheduledTask -TaskName "llm-router-guard"     # State 应为 Running
+# 卸载：Unregister-ScheduledTask -TaskName "llm-router-guard" -Confirm:$false
+```
+
+环境变量两种给法：系统级 `$env:PORT="8080"; setx PORT 8080`（`setx` 永久，重开终端生效），
+或用 **NSSM** 注册成真正的 Windows 服务（`nssm install llm-router-guard F:\...\server.exe`，
+`nssm set llm-router-guard AppEnvironmentExtra PORT=8080 JWT_SECRET=...`）——生产建议 NSSM。
+
+### macOS — launchd
+
+```bash
+# ~/Library/LaunchAgents/cn.llmrg.gateway.plist（登录自启；系统级放 /Library/LaunchDaemons）
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>cn.llmrg.gateway</string>
+  <key>ProgramArguments</key><array>
+    <string>/opt/llmrg/bin/llm-router-guard</string>
+  </array>
+  <key>WorkingDirectory</key><string>/opt/llmrg</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PORT</key><string>8080</string>
+    <key>DB_TYPE</key><string>sqlite</string>
+    <key>JWT_SECRET</key><string>换掉</string>
+    <key>MASTER_KEY</key><string>换掉</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/opt/llmrg/gateway.log</string>
+  <key>StandardErrorPath</key><string>/opt/llmrg/gateway.err.log</string>
+</dict></plist>
+
+launchctl load ~/Library/LaunchAgents/cn.llmrg.gateway.plist   # 加载并启动
+launchctl list | grep llmrg                                    # 确认在跑
+launchctl unload ~/Library/LaunchAgents/cn.llmrg.gateway.plist # 停止
+```
+
+### 裸进程（临时/调试）
+
+```bash
+nohup ./llm-router-guard > gateway.log 2>&1 &   # Linux/macOS；echo $! > gateway.pid
+Start-Process .\server.exe -WindowStyle Hidden  # Windows（无自动重启，生产用上面三种）
+```
+
+## 9. 故障速查
 
 | 症状 | 原因 / 处理 |
 |------|-------------|
@@ -135,6 +251,8 @@ cd frontend && npm install && npm run dev  # 终端 2：Vite :5173，/api 与 /v
 | 访问 `/` 返回 404 | 部署目录缺 `web/dist`（前端产物随二进制部署，或用 `FRONTEND_DIST` 指定绝对路径） |
 | 测试连接失败但聊天正常 | 测试连接是严格判据（要求模型列表 JSON）；上游 `/v1/models` 非标准时会报失败，属预期 |
 | 上游转发 502 `unsupported upstream protocol` | 供应商协议字段填了枚举外的值（新版创建/更新时即 400 拦截） |
+| 上游 400 `field MaxTokens invalid, should be in [1, 131072]` | 客户端 `max_tokens` 超出**该厂商**区间（网关不钳制、原样透传）；调到厂商上限内即可 |
+| 推理模型回答为空/极短且 `finish_reason=length` | 思维链耗尽 max_tokens 预算——调大 `max_tokens`（思维链经 `reasoning_content`/`thinking_delta` 透传，可展示） |
 | 客户端 IP 全是 LB 地址 | `TRUSTED_PROXIES` 未设为代理网段 |
 | 端口被占起不来 | `PORT=18080 ./bin/llm-router-guard`；老进程 `fuser -k 8080/tcp`（Linux） |
 | 多实例改配置另一实例几秒后才生效 | 热加载轮询周期，默认 ≤3s（`hot_reload_seconds` 可调）——这是设计内行为 |
