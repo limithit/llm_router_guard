@@ -92,6 +92,33 @@ func clientError(c *gin.Context, proto adapter.Protocol, status int, msg, errTyp
 	c.Data(status, "application/json", adapter.ErrorJSON(proto, status, msg, errType, code))
 }
 
+// CountTokens POST /v1/messages/count_tokens：Claude Code 等 anthropic 客户端发大请求前的
+// 预算探测。不调上游，本地按 ~4 字节/token 粗估（与 estimateUsage 同量级），返回 anthropic 格式。
+func (s *Server) CountTokens(c *gin.Context) {
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 16<<20))
+	if err != nil {
+		clientError(c, adapter.ProtoAnthropic, http.StatusBadRequest, err.Error(), "invalid_request_error", "bad_body")
+		return
+	}
+	cr, err := adapter.ParseRequest(adapter.ProtoAnthropic, body)
+	if err != nil {
+		clientError(c, adapter.ProtoAnthropic, http.StatusBadRequest, err.Error(), "invalid_request_error", "bad_request")
+		return
+	}
+	n := len(cr.InputPlainText())
+	c.JSON(http.StatusOK, gin.H{"input_tokens": n/4 + 1})
+}
+
+// stripContextSuffix 剥掉模型名尾部的上下文长度标记（如 "glm5.2[1m]" → "glm5.2"）。
+// 第二返回值表示是否存在该后缀。
+func stripContextSuffix(model string) (string, bool) {
+	i := strings.LastIndexByte(model, '[')
+	if i <= 0 || !strings.HasSuffix(model, "]") {
+		return model, false
+	}
+	return model[:i], true
+}
+
 // ListModels GET /v1/models（及 /v1/{responses,messages,chat/completions}/models）
 // 返回网关已配置的模型别名，供第三方 Agent 工具发现可用模型。
 // 按协议返回干净 schema：路径含 /messages 或带 anthropic-version 头 → Anthropic 格式，
@@ -290,6 +317,18 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		}
 		ap.alias = cr.Model
 		ups, ok := snap.Aliases[cr.Model]
+		if !ok {
+			// 上下文长度后缀容错：Claude Code 等客户端把 "glm5.2[1m]"（1M 上下文标记）整个
+			// 放进 model 字段。直接查找失败时剥掉尾部 [...] 再试一次。
+			if stripped, had := stripContextSuffix(cr.Model); had {
+				if ups2, ok2 := snap.Aliases[stripped]; ok2 {
+					log.Printf("[gateway] model %q not configured; resolved via context-suffix strip to alias %q", cr.Model, stripped)
+					cr.Model = stripped
+					ap.alias = stripped
+					ups, ok = ups2, true
+				}
+			}
+		}
 		if !ok {
 			ap.errMsg = "unknown model alias: " + cr.Model
 			clientError(c, clientProto, http.StatusNotFound,

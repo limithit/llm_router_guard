@@ -29,6 +29,8 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	gw.POST("/chat/completions", gws.Handle(adapter.ProtoOpenAIChat))
 	gw.POST("/responses", gws.Handle(adapter.ProtoOpenAIResponses))
 	gw.POST("/messages", gws.Handle(adapter.ProtoAnthropic))
+	// anthropic 客户端的请求前预算探测（Claude Code），本地估算不调上游
+	gw.POST("/messages/count_tokens", gws.CountTokens)
 	// 模型目录（OpenAI/Anthropic 字段并集）。兼容不同工具把 /models 拼到端点后的发现路径。
 	gw.GET("/models", gws.ListModels)
 	gw.GET("/responses/models", gws.ListModels)

@@ -1,6 +1,23 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-10（第二十一轮：三协议工具调用转写——anthropic/responses 客户端接入 agent 场景）
+最后更新：2026-09-10（第二十二轮：Claude Code 接入适配——[1m] 后缀容错 + count_tokens + 别名启用）
+
+## 本轮迭代变更（第二十二轮）
+
+### 网关：模型名上下文后缀容错 + count_tokens 端点
+- **现象**：Claude Code（anthropic 客户端）配置 `glm-5.2[1m]`（1M 上下文标记语法）报
+  "model may not exist or you may not have access"。排查三个原因：① 网关别名解析不容忍尾部
+  `[...]` 标记；② 用户自建的 `glm-5.2` 别名处于**禁用**状态（快照不加载禁用别名，/v1/models
+  也不列出）；③ Claude Code 发大请求前会调 `/v1/messages/count_tokens`，网关此前未实现。
+- **修复**：
+  - `stripContextSuffix`：别名直查失败时剥掉尾部 `[...]`（`glm5.2[1m]`→`glm5.2`）重试一次，
+    命中即以剥离名解析并留痕日志；404 错误信息保持原始请求名便于定位。
+  - 新增 `POST /v1/messages/count_tokens`：不调上游，本地 ~4 字节/token 粗估，返回
+    `{"input_tokens":N}`（anthropic 格式），消除 Claude Code 预算探测 404。
+  - 帮用户启用 `glm-5.2` 别名（同 glm5.2 的 3 上游）并设 `default_max_tokens=131072`。
+- **实测（本地真实库 + sensenova 上游）**：model=`glm-5.2[1m]` 的 /v1/messages 请求解析成功并
+  返回正常 anthropic 响应（thinking+text，stop_reason=end_turn）；count_tokens 返回估算值；
+  /v1/models（anthropic 头）列出 glm-5.2。openai_chat 路径不受影响。
 
 ## 本轮迭代变更（第二十一轮）
 
