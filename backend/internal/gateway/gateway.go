@@ -558,6 +558,8 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	nextCheck := threshold
 	stopped := false
 
+	sawFinish := false
+	finishReason := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
@@ -569,6 +571,7 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			ap.errMsg = chunk.Err
 			ap.status = "error"
 			s.mx.RecordError(reqID, chunk.Err)
+			log.Printf("[stream] %s %s upstream error event: %s", up.ProviderName, up.UpstreamModel, chunk.Err)
 			return frFatal
 		}
 		if chunk.Usage != nil {
@@ -578,6 +581,9 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			if chunk.Usage.Completion > 0 {
 				usage.Completion = chunk.Usage.Completion
 			}
+		}
+		if chunk.ReasoningDelta != "" {
+			_ = sw.Reasoning(chunk.ReasoningDelta)
 		}
 		if chunk.TextDelta != "" {
 			acc.WriteString(chunk.TextDelta)
@@ -597,14 +603,26 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			}
 		}
 		if chunk.Finish {
+			sawFinish = true
+			if chunk.FinishReason != "" {
+				finishReason = chunk.FinishReason
+			}
 			break
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		// 结束原因观测：正常 EOF 静默、真实错误也常被上层当"正常结束"，先在此显式留痕，
+		// 否则"上游提前断开 / 客户端断开 / 护栏拦截"三种截断在日志里无法区分。
+		log.Printf("[stream] %s %s finished early: read error=%v (accumulated %d bytes)", up.ProviderName, up.UpstreamModel, err, acc.Len())
 		_ = sw.Fail("upstream stream interrupted: " + err.Error())
 		ap.errMsg = err.Error()
 		ap.status = "error"
 		return frFatal
+	}
+	if !sawFinish {
+		// 读到 EOF 也没见到 finish_reason/[DONE]：上游把流掐了（网络/网关/上游侧超时）。
+		// 此前被当成功（RecordSuccess + usage 估算），排障时完全隐身——必须显式留痕。
+		log.Printf("[stream] %s %s finished early: upstream closed before finish signal (accumulated %d bytes)", up.ProviderName, up.UpstreamModel, acc.Len())
 	}
 
 	// 流结束兜底检测：短输出（不足阈值）或最后一个未达阈值的尾部此前未被检测，
@@ -623,7 +641,7 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	if ap.status == "" || ap.status == "error" && ap.errMsg == "" {
 		ap.status = "ok"
 	}
-	_ = sw.Finalize(usage)
+	_ = sw.Finalize(usage, finishReason)
 	s.bl.RecordSuccess(up.ProviderID)
 	if ap.status == "ok" || ap.status == "blocked" {
 		s.qm.Consume(snap, ap.keyID, ap.alias, usage.Prompt, usage.Completion)

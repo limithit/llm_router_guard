@@ -63,6 +63,8 @@ class Handler(BaseHTTPRequestHandler):
                                   "type": "mock_error"}}, 500)
             return
         model = body.get("model", "mock-small")
+        auth = self.headers.get("Authorization", "")
+        print("CHAT key=...%s stream=%s model=%s" % (auth[-4:], bool(body.get("stream")), model), flush=True)
         content = ""
         for m in reversed(body.get("messages", [])):
             if m.get("role") == "user":

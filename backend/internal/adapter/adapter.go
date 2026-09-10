@@ -43,6 +43,7 @@ type CanonicalResponse struct {
 	ID           string `json:"id"`
 	Model        string `json:"model"`
 	Content      string `json:"content"`
+	Reasoning    string `json:"reasoning"` // 推理模型思维链（GLM/DeepSeek reasoning_content）
 	FinishReason string `json:"finish_reason"`
 	Usage        Usage  `json:"usage"`
 }
@@ -347,7 +348,8 @@ func ParseCompletion(p Protocol, body []byte) (*CanonicalResponse, error) {
 			} `json:"usage"`
 			Choices []struct {
 				Message struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
 				} `json:"message"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -358,6 +360,7 @@ func ParseCompletion(p Protocol, body []byte) (*CanonicalResponse, error) {
 		out := &CanonicalResponse{ID: r.ID, Model: r.Model, FinishReason: "stop"}
 		if len(r.Choices) > 0 {
 			out.Content = r.Choices[0].Message.Content
+			out.Reasoning = r.Choices[0].Message.Reasoning
 			if r.Choices[0].FinishReason != "" {
 				out.FinishReason = r.Choices[0].FinishReason
 			}

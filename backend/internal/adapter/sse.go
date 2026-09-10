@@ -11,10 +11,12 @@ import (
 
 // UpstreamChunk 上游 SSE data 行解析结果。
 type UpstreamChunk struct {
-	TextDelta string
-	Usage     *Usage
-	Finish    bool
-	Err       string
+	TextDelta      string
+	ReasoningDelta string // 推理模型思维链增量（GLM/DeepSeek 风格 delta.reasoning_content）
+	FinishReason   string // 上游最终 finish_reason（stop/length/...，非 final 块为空）
+	Usage          *Usage
+	Finish         bool
+	Err            string
 }
 
 // ParseUpstreamData 解析上游 "data:" 后的负载。
@@ -28,7 +30,8 @@ func ParseUpstreamData(p Protocol, data string) UpstreamChunk {
 		var r struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -49,8 +52,10 @@ func ParseUpstreamData(p Protocol, data string) UpstreamChunk {
 		}
 		if len(r.Choices) > 0 {
 			out.TextDelta = r.Choices[0].Delta.Content
+			out.ReasoningDelta = r.Choices[0].Delta.Reasoning
 			if r.Choices[0].FinishReason != nil {
 				out.Finish = *r.Choices[0].FinishReason != ""
+				out.FinishReason = *r.Choices[0].FinishReason
 			}
 		}
 		if r.Usage != nil {
@@ -202,14 +207,45 @@ func (s *SSEWriter) Delta(text string) error {
 	}
 }
 
-// Finalize 正常收尾（含 usage）。
-func (s *SSEWriter) Finalize(usage Usage) error {
+// Reasoning 输出推理模型思维链增量（delta.reasoning_content / anthropic thinking_delta）。
+// OpenAI Responses 客户端协议暂不下发（无标准字段，静默跳过）。
+func (s *SSEWriter) Reasoning(text string) error {
+	if text == "" {
+		return nil
+	}
+	tj, _ := json.Marshal(text)
 	switch s.proto {
 	case ProtoAnthropic:
+		return s.raw("event: content_block_delta\ndata: " + fmt.Sprintf(
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":%s}}`, string(tj)) + "\n\n")
+	case ProtoOpenAIResponses:
+		return nil
+	default:
+		return s.raw("data: " + fmt.Sprintf(
+			`{"id":"%s","object":"chat.completion.chunk","created":0,"model":"%s","choices":[{"index":0,"delta":{"reasoning_content":%s},"finish_reason":null}]}`,
+			s.id, s.model, string(tj)) + "\n\n")
+	}
+}
+
+// Finalize 正常收尾（含 usage）。finish 为上游真实 finish_reason（stop/length/...），
+// 空串按 stop 处理；anthropic 映射 stop→end_turn、length→max_tokens。
+func (s *SSEWriter) Finalize(usage Usage, finish string) error {
+	if finish == "" {
+		finish = "stop"
+	}
+	switch s.proto {
+	case ProtoAnthropic:
+		stopReason := finish
+		switch finish {
+		case "stop":
+			stopReason = "end_turn"
+		case "length":
+			stopReason = "max_tokens"
+		}
 		return s.raw("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
 			"event: message_delta\ndata: " + fmt.Sprintf(
-			`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":%d}}`,
-			usage.Completion) + "\n\n" +
+			`{"type":"message_delta","delta":{"stop_reason":"%s","stop_sequence":null},"usage":{"output_tokens":%d}}`,
+			stopReason, usage.Completion) + "\n\n" +
 			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	case ProtoOpenAIResponses:
 		tj, _ := json.Marshal(map[string]any{"type": "response.completed", "response": map[string]any{
@@ -219,8 +255,8 @@ func (s *SSEWriter) Finalize(usage Usage) error {
 		return s.raw("event: response.completed\ndata: " + string(tj) + "\n\n")
 	default:
 		err := s.raw("data: " + fmt.Sprintf(
-			`{"id":"%s","object":"chat.completion.chunk","created":0,"model":"%s","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d}}`,
-			s.id, s.model, usage.Prompt, usage.Completion, usage.Prompt+usage.Completion) + "\n\n")
+			`{"id":"%s","object":"chat.completion.chunk","created":0,"model":"%s","choices":[{"index":0,"delta":{},"finish_reason":"%s"}],"usage":{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d}}`,
+			s.id, s.model, finish, usage.Prompt, usage.Completion, usage.Prompt+usage.Completion) + "\n\n")
 		if err != nil {
 			return err
 		}
@@ -251,9 +287,14 @@ func BuildCompletionJSON(clientProto Protocol, resp *CanonicalResponse) []byte {
 	switch clientProto {
 	case ProtoAnthropic:
 		tj, _ := json.Marshal(resp.Content)
+		content := []any{}
+		if resp.Reasoning != "" {
+			content = append(content, map[string]any{"type": "thinking", "thinking": resp.Reasoning})
+		}
+		content = append(content, map[string]any{"type": "text", "text": json.RawMessage(tj)})
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "type": "message", "role": "assistant", "model": resp.Model,
-			"content":     []any{map[string]any{"type": "text", "text": json.RawMessage(tj)}},
+			"content":     content,
 			"stop_reason": resp.FinishReason,
 			"usage":       map[string]any{"input_tokens": resp.Usage.Prompt, "output_tokens": resp.Usage.Completion}})
 		return b
@@ -267,10 +308,14 @@ func BuildCompletionJSON(clientProto Protocol, resp *CanonicalResponse) []byte {
 				"output_tokens": resp.Usage.Completion, "total_tokens": resp.Usage.Prompt + resp.Usage.Completion}})
 		return b
 	default: // openai_chat
+		msg := map[string]any{"role": "assistant", "content": resp.Content}
+		if resp.Reasoning != "" {
+			msg["reasoning_content"] = resp.Reasoning
+		}
 		b, _ := json.Marshal(map[string]any{
 			"id": resp.ID, "object": "chat.completion", "created": 0, "model": resp.Model,
 			"choices": []any{map[string]any{"index": 0,
-				"message":       map[string]any{"role": "assistant", "content": resp.Content},
+				"message":       msg,
 				"finish_reason": resp.FinishReason}},
 			"usage": map[string]any{"prompt_tokens": resp.Usage.Prompt,
 				"completion_tokens": resp.Usage.Completion,
