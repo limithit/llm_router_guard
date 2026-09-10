@@ -25,3 +25,5 @@ Thumbs.db
 .e2e/
 .npmcache/
 deploy/llm-router-guard-linux-amd64
+
+frontend/tsconfig.tsbuildinfo
