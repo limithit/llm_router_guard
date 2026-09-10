@@ -232,7 +232,7 @@ func (s *Server) writeLog(p auditParams) {
 		PromptTokens: p.promptTokens, CompletionTokens: p.completionTokens,
 		LatencyMs: time.Since(p.start).Milliseconds(), Status: p.status,
 		Blocked: p.status == "blocked", BlockCategory: p.category, BlockReason: p.reason,
-		ErrorMsg: p.errMsg, GuardFindings: p.findings,
+		ErrorMsg: p.errMsg, GuardFindings: p.findings, FinishReason: p.finishReason,
 	}
 	s.auditLog.Write(cl)
 }
@@ -248,6 +248,7 @@ type auditParams struct {
 	input, output                              string
 	promptTokens, completionTokens             int
 	status, category, reason, errMsg, findings string
+	finishReason                               string
 }
 
 // Handle 返回一个协议端点的 gin 处理器。
@@ -522,6 +523,7 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	usage := estimateUsage(cr.Usage, ap.input, cr.Content)
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
+	ap.finishReason = cr.FinishReason
 	ap.output = guard.MaskForLog(snap, cr.Content)
 	ap.status = "ok"
 
@@ -635,12 +637,14 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 
 	usage = estimateUsage(usage, ap.input, acc.String())
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
+	ap.finishReason = finishReason
 	if ap.output == "" {
 		ap.output = guard.MaskForLog(snap, acc.String())
 	}
 	if ap.status == "" || ap.status == "error" && ap.errMsg == "" {
 		ap.status = "ok"
 	}
+	log.Printf("[stream] %s %s done: finish_reason=%s content_bytes=%d deltas_logged=%v", up.ProviderName, up.UpstreamModel, finishReason, acc.Len(), sawFinish)
 	_ = sw.Finalize(usage, finishReason)
 	s.bl.RecordSuccess(up.ProviderID)
 	if ap.status == "ok" || ap.status == "blocked" {

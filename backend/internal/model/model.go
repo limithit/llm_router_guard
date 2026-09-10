@@ -255,7 +255,8 @@ type CallLog struct {
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
 	LatencyMs        int64     `json:"latency_ms"`
-	Status           string    `gorm:"size:24;index" json:"status"` // ok|error|blocked|rate_limited|quota_exceeded
+	Status           string    `gorm:"size:24;index" json:"status"`  // ok|error|blocked|rate_limited|quota_exceeded
+	FinishReason     string    `gorm:"size:32" json:"finish_reason"` // 上游 finish_reason（stop/length/...）：区分"模型自然结束"与"预算截断"的关键证据
 	Blocked          bool      `gorm:"index" json:"blocked"`
 	BlockCategory    string    `gorm:"size:64" json:"block_category"`
 	BlockReason      string    `gorm:"size:512" json:"block_reason"`
