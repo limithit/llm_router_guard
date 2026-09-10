@@ -1,6 +1,40 @@
 # AI 网关与模型护栏系统 — 项目进度记录
 
-最后更新：2026-09-09（第十六轮：流式请求解除总超时约束 + Quickstart 文档 + 测试机运维踩坑归档）
+最后更新：2026-09-10（第十七轮：推理模型思维链透传——"流式只出一小段就结束"的真正根因）
+
+## 本轮迭代变更（第十七轮）
+
+### 根因确诊与修复：推理模型思维链（reasoning_content）被网关整段丢弃
+- **用户实测环境**（本地 SQLite、无 mock）：3 个 provider 同厂商 `token.sensenova.cn/v1`、
+  不同 API key，别名 `glm5.2` 挂 3 上游轮询，模型 `glm-5.2`。
+- **复现与隔离**（全部在用户真实库 + 真实厂商上完成）：
+  1. 网关实测：`max_tokens=300` 流式请求，多数响应只有 Open 事件 + `finish_reason:"stop"` +
+     `completion_tokens:0`（看似"一小段就断"），偶发完整回答——轮询放大了间歇感。
+  2. 用一次性 Go 工具（AES-GCM 解密 provider key，**不打印明文**）**绕过网关直连厂商**：
+     3 把 key 全部 `http=200`、17-20 个分块**全是 `delta.reasoning_content`**、
+     `delta.content` 恒空、`finish_reason:"length"`——铁证：厂商行为如此，与 key/轮询无关。
+- **根因**：`glm-5.2` 是推理模型，思维链走 `delta.reasoning_content`（GLM/DeepSeek 风格，
+  非 OpenAI 标准）；`ParseUpstreamData` 只取 `delta.content` → 思维链整段丢弃；
+  max_tokens 被思维链烧完时（`finish_reason=length`）正文一个字都没生成 → 客户端看到
+  "只出一小段就结束"。仅当模型思维链较短、正文真的生成出来时才"正常"——解释了间歇性。
+- **修复**（`adapter/sse.go`、`adapter/adapter.go`、`gateway/gateway.go`）：
+  - `UpstreamChunk` 增 `ReasoningDelta`、`FinishReason`；解析 `delta.reasoning_content`。
+  - `SSEWriter.Reasoning()`：流式思维链增量按客户端协议下发
+    （openai_chat → `delta.reasoning_content`；anthropic → `thinking_delta` 事件；responses 暂跳过）。
+  - `Finalize(usage, finish)`：转发上游真实 `finish_reason`（anthropic 映射 stop→end_turn、
+    length→max_tokens）——此前**硬编码 stop**，length 截断被谎报为正常结束。
+  - 非流式：`CanonicalResponse.Reasoning` ← `message.reasoning_content`，
+    `BuildCompletionJSON` 透传（openai_chat 加 `reasoning_content` 字段；anthropic 前置 thinking 块）。
+  - 流结束观测日志：`[stream] upstream closed before finish signal` / `read error=...` /
+    `upstream error event`——三类截断从此在日志可区分（此前上游提前断开被静默当成功）。
+- **实测验证**：修复后 `max_tokens=300` → 48 个思维链增量到达客户端；
+  `max_tokens=1000` → 149 思维链 + 2 正文增量、`finish=stop` 正常收尾。
+  全量单测通过（gateway/adapter 等全绿）。
+- **语义边界**：思维链**不进**输出护栏、不计入审计正文（`acc`/`ap.output` 仍只含 content），
+  usage 按上游报数透传。
+- **运维注**：本机 8080 无服务、`bin/` 不存在——诊断用 `go build -o backend\bin\server.exe`
+  从 `backend/` 起服（sqlite 相对路径 `gateway.db` 即真实库）；
+  一次性解密工具已删不入库；临时 API key `diag-temp`/别名 `diag-p1..3` 留在用户库里待清理。
 
 ## 本轮迭代变更（第十六轮）
 

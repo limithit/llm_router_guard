@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 5174,
     // 开发环境将 /api 与 /v1 代理到后端 Go 服务（与 api-contract.md 的 Base URL 一致）
     proxy: {
       '/api': {
