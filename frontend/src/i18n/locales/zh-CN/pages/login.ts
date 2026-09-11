@@ -21,5 +21,6 @@ export default {
   'login.backToPrevStep': '返回上一步',
   'login.needBindMfa': '检测到您尚未绑定 MFA，请先完成绑定以提升账户安全',
   'login.loginResponseInvalid': '登录响应异常，请重试',
+  'login.invalidCredentials': '账号或密码错误',
   'login.mfaCodeMissing': '请输入验证码或恢复码',
 };

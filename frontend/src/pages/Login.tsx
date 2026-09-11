@@ -58,6 +58,17 @@ export default function Login() {
         return;
       }
       message.error(t('login.loginResponseInvalid'));
+    } catch (e) {
+      // 登录失败：账密错误 / MFA 码错误 / 账户锁定等统一提示，不暴露具体原因（防枚举）。
+      // HTTP 拦截器对 401 已静默处理（redirectToLogin 在 /login 页是 no-op），这里给出用户可见提示。
+      const status = (e as { response?: { status?: number } }).response?.status;
+      const code = (e as { code?: number }).code;
+      if (status === 401 || code === 40101 || code === 40102 || code === 40103) {
+        message.error(t('login.invalidCredentials'));
+      } else {
+        // 网络错误 / 超时等，非鉴权失败，不伪装成账密错误
+        message.error(t('common.networkError'));
+      }
     } finally {
       setSubmitting(false);
     }

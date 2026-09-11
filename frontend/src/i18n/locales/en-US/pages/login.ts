@@ -21,5 +21,6 @@ export default {
   'login.backToPrevStep': 'Back',
   'login.needBindMfa': 'MFA is not bound to your account yet. Please bind it to improve account security.',
   'login.loginResponseInvalid': 'Invalid login response, please try again',
+  'login.invalidCredentials': 'Invalid username or password',
   'login.mfaCodeMissing': 'Please enter a verification or recovery code',
 };
