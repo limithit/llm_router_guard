@@ -238,6 +238,11 @@ func (s *Server) touchLastUsed(id uint) {
 	}
 	s.lastUsed.Store(id, now)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[gateway] touchLastUsed panic recovered: %v", r)
+			}
+		}()
 		t := time.Now()
 		s.db.Model(&model.APIKey{}).Where("id = ?", id).Update("last_used_at", &t)
 	}()

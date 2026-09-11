@@ -30,6 +30,7 @@ import (
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
 	"llmrouter/internal/tokens"
+	"llmrouter/internal/util"
 )
 
 func main() {
@@ -37,7 +38,7 @@ func main() {
 
 	// 预热 token 编码器（cl100k_base BPE）：后台下载/加载编码文件，
 	// 避免首个请求承担延迟；离线场景（TIKTOKEN_CACHE_DIR 缺失且无网络）会降级到启发式估算。
-	go tokens.Init()
+	util.SafeGo("tokens.Init", func() { _ = tokens.Init() })
 
 	// 数据库
 	gormDB, err := db.Open(cfg.DBType, cfg.DBDSN)
@@ -75,7 +76,7 @@ func main() {
 	qm.StartBackground(ctx, rl)
 	// 上游健康检查（P1 #3）：周期探测启用供应商，失败经熔断计数累计（多实例时 Redis 广播）。
 	// HEALTH_CHECK_SECONDS=0 可禁用。
-	go health.New(gormDB, enc, bl).Run(ctx, time.Duration(cfg.HealthCheckSeconds)*time.Second)
+	util.SafeGo("health.Run", func() { health.New(gormDB, enc, bl).Run(ctx, time.Duration(cfg.HealthCheckSeconds)*time.Second) })
 
 	// 首次引导管理员
 	bootstrapAdmin(gormDB, cfg)
@@ -124,12 +125,30 @@ func main() {
 
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", cfg.ListenPort), Handler: engine}
 
-	go func() {
+	// HTTP 服务监听：出错不退出进程（网络抖动 / 端口瞬时占用 / 系统休眠唤醒后 bind 失败等
+	// 可恢复场景），退避重试；仅在 ctx 取消（收到 SIGINT/SIGTERM）时优雅退出。
+	util.SafeGo("http.ListenAndServe", func() {
 		log.Printf("LLM Router Guard listening on :%d", cfg.ListenPort)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("http server error: %v", err)
+		backoff := time.Second
+		for {
+			err := srv.ListenAndServe()
+			if err == nil || err == http.ErrServerClosed {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("[http] listen error: %v — retrying in %s", err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
 		}
-	}()
+	})
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)

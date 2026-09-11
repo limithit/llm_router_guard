@@ -9,6 +9,7 @@ package health
 import (
 	"context"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -76,6 +77,11 @@ func (c *Checker) ProbeAll(ctx context.Context) {
 		go func(p model.Provider) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[health] probe %s panic recovered: %v", p.Name, r)
+				}
+			}()
 			c.probe(ctx, p, fo)
 		}(p)
 	}
