@@ -1,3 +1,5 @@
+> 🌐 **English** (frontend i18n guide — no Chinese counterpart; the guide is English-only)
+
 # Frontend i18n Guide (EN/CN)
 
 ## Overview

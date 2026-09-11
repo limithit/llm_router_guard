@@ -1,147 +1,147 @@
-# AI 网关与模型护栏系统
+> 🌐 **English** | [中文](README.zh-CN.md)
 
-轻量级、自托管、功能聚焦的 AI 网关平台，支持多协议统一接入（OpenAI Chat/Responses / Anthropic）、智能路由负载均衡、输入/输出双向护栏过滤、配额与速率限制、全链路审计日志、配置热加载及 TOTP MFA 管理后台。
+# AI Gateway & Model Guard System
 
-**技术栈**：Go 1.24（Gin + GORM）+ React 18（Ant Design 5.x + Vite 5）
+A lightweight, self-hosted, feature-focused AI gateway platform. It offers unified multi-protocol ingress (OpenAI Chat / Responses / Anthropic), intelligent routing with weighted load balancing, bidirectional input/output guard filtering, quotas and rate limits, full-chain audit logging, hot-reloadable configuration, and a TOTP-MFA admin console.
 
-## 快速开始
+**Stack**: Go 1.24 (Gin + GORM) + React 18 (Ant Design 5.x + Vite 5)
 
-> 想 5 分钟从零跑通（构建→首启→配供应商→第一次转发→排障速查）：见 **[quickstart.md](quickstart.md)**。本节及以下内容为完整部署参考。
+## Quick Start
 
-### 环境要求
+> For a 5-minute end-to-end run (build → first boot → configure a provider → first proxied request → troubleshooting), see **[quickstart.en.md](quickstart.en.md)**. The sections below are the complete deployment reference.
+
+### Requirements
 
 - Go >= 1.24
-- Node.js >= 18  (仅构建前端使用；生产部署只需 Go 二进制)
+- Node.js >= 18  (only for building the frontend; production deployments need only the Go binary)
 
-### 本地开发
+### Local Development
 
-项目为**单进程模型**：Go 后端是唯一运行时进程，在同一个端口（默认 :8080）上同时提供管理 API、网关端点（`/v1/*`）和前端 SPA 静态资源——前端无需独立服务器，也不需要 Nginx。
+The project is a **single-process model**: the Go backend is the only runtime process. It serves the admin API, the gateway endpoints (`/v1/*`), and the frontend SPA static assets all on a single port (default `:8080`) — the frontend needs no separate server and no Nginx.
 
 ```bash
-# 1. 编译后端
+# 1. Build the backend
 cd backend && go mod tidy && go build -o ../bin/server ./cmd/server
 
-# 2. 构建前端
+# 2. Build the frontend
 cd frontend && npm install && npm run build
 
-# 3. 运行服务端（运行时从 web/dist 或 ../frontend/dist 读取前端产物，按请求实时读盘）
+# 3. Run the server (reads frontend assets from web/dist or ../frontend/dist at request time)
 cd ..
-./bin/server          # 默认 :8080，SQLite 数据库 gateway.db
+./bin/server          # default :8080, SQLite database gateway.db
 ```
 
-前端重新构建后刷新浏览器即可看到最新界面，无需重启服务。
+After rebuilding the frontend, refresh the browser to see the latest UI — no server restart needed.
 
-> 前端热更新开发：另开终端 `cd frontend && npm run dev`，Vite 在 :5173 提供热更新，并通过 `vite.config.ts` 将 `/api`、`/v1` 代理到后端 :8080；此时访问 http://localhost:5173 即可。这是唯一会出现两个进程的场景，且仅用于开发。
+> Frontend hot-reload development: in another terminal run `cd frontend && npm run dev`. Vite serves on :5173 and, via `vite.config.ts`, proxies `/api` and `/v1` to the backend on :8080; visit http://localhost:5173. This is the only scenario in which two processes run, and it is for development only.
 
-环境变量控制关键行为：
+Environment variables control key behavior:
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | `8080` | 监听端口 |
-| `DB_TYPE` | `sqlite` | 数据库类型：`sqlite` / `postgres` / `mysql`（切换见[数据库切换](#数据库切换sqlite--mysql--postgresql)） |
-| `DB_DSN` | `gateway.db` | 连接串；sqlite 为文件路径，postgres / mysql 为标准 DSN（示例见下） |
-| `JWT_SECRET` | `change-me-jwt-secret` | JWT 签名密钥 |
-| `MASTER_KEY` | `llm-router-guard-master-key` | API Key 加密主密钥 |
-| `ADMIN_USER` | `admin` | 首启管理员用户名 |
-| `ADMIN_PASSWORD` | `admin123` | 首启密码（必须修改！）|
-| `DATA_DIR` | `./data` | 备份文件存放目录 |
-| `FRONTEND_DIST` | (auto-detect) | 前端构建产物目录 |
-| `TRUSTED_PROXIES` | (empty) | 可信反代 CIDR（逗号分隔）。默认空 → `ClientIP` 取 TCP 对端、不解析 `X-Forwarded-For`，防伪造 IP 绕过 API Key 的 IP 白名单；反代部署时设为代理 CIDR（如 `127.0.0.1/32,10.0.0.0/8`） |
-| `REDIS_ADDR` | (empty) | Redis 地址（`host:port`）。mysql/postgres 部署配置后启用**分布式限流 / 熔断状态广播 / MFA 二步票据**（多节点必备；sqlite 单节点忽略）。详见[多节点部署](#多节点部署postgresql--mysql--redis) |
-| `REDIS_PASSWORD` | (empty) | Redis 密码；带 `requirepass` 的实例必须配置，否则组件 NOAUTH 自动降级为单实例语义 |
-| `HEALTH_CHECK_SECONDS` | `30` | 上游健康检查周期秒数，`0`=禁用。周期探测各启用供应商 `GET <base>/v1/models`，任何 HTTP 响应=可达（清熔断），仅传输层错误累计失败；结果联动熔断并经 Redis 广播 |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Listen port |
+| `DB_TYPE` | `sqlite` | Database type: `sqlite` / `postgres` / `mysql` (see [Database switching](#database-switching-sqlite--mysql--postgresql)) |
+| `DB_DSN` | `gateway.db` | Connection string; a file path for sqlite, a standard DSN for postgres / mysql (examples below) |
+| `JWT_SECRET` | `change-me-jwt-secret` | JWT signing secret |
+| `MASTER_KEY` | `llm-router-guard-master-key` | Master key for encrypting API keys |
+| `ADMIN_USER` | `admin` | First-boot admin username |
+| `ADMIN_PASSWORD` | `admin123` | First-boot password (must be changed!) |
+| `DATA_DIR` | `./data` | Backup file directory |
+| `FRONTEND_DIST` | (auto-detect) | Frontend build output directory |
+| `TRUSTED_PROXIES` | (empty) | Trusted reverse-proxy CIDRs (comma-separated). Empty by default → `ClientIP` uses the TCP peer and does not parse `X-Forwarded-For`, preventing forged-IP bypass of API-key IP whitelists. When behind a reverse proxy, set this to the proxy CIDRs (e.g. `127.0.0.1/32,10.0.0.0/8`) |
+| `REDIS_ADDR` | (empty) | Redis address (`host:port`). For mysql/postgres deployments this enables **distributed rate limiting / circuit-breaker state broadcast / MFA two-step tickets** (required for multi-node; single-node sqlite ignores it). See [Multi-node deployment](#multi-node-deployment-postgresql--mysql--redis) |
+| `REDIS_PASSWORD` | (empty) | Redis password; required for instances with `requirepass`, otherwise components auto-degrade to single-instance semantics on `NOAUTH` |
+| `HEALTH_CHECK_SECONDS` | `30` | Upstream health-check interval in seconds; `0` = disabled. Periodically probes each enabled provider's `GET <base>/v1/models`; any HTTP response = reachable (clears the breaker); only transport-layer errors count toward failure. Results drive the breaker and are broadcast over Redis |
 
-首次启动会自动创建 admin 用户（用户名可在 `ADMIN_USER` 中自定义），并在控制台打印默认密码。**请立即通过 Web 界面修改密码**。
+First boot auto-creates the admin user (the username is configurable via `ADMIN_USER`) and prints the default password to the console. **Change it immediately via the web UI.**
 
-## 架构概览
+## Architecture Overview
 
 ```
 ┌──────────┐   ┌──────────────┐   ┌─────────────┐
 │  React UI │   │  Gateway API │   │  Upstream   │
-│  Ant Design│←→│  Gin + gorm │←→│ OpenAI/Antrop│
+│  Ant Design│←→│  Gin + gorm │←→│ OpenAI/Anthrp│
 │  TanStack │   │  SLB/Failover│   │ Responses/  │
 └──────────┘   │  Guard Engine │   │ Custom APIs │
-               │  Quota/Limit  │   └─────────────┘
-               │  Audit Log    │
-               │  Config DB    │
-               └──────┬────────┘
-                      │ SQLite / Postgres / MySQL
+                │  Quota/Limit  │   └─────────────┘
+                │  Audit Log    │
+                │  Config DB    │
+                └──────┬────────┘
+                       │ SQLite / Postgres / MySQL
 ```
 
-### 核心能力
+### Core Capabilities
 
-| 模块 | 描述 | 对应 PRD REQ |
-|------|------|--------------|
-| **三协议统一接入** | OpenAI Chat Completions / Responses / Anthropic Messages 统一入口 | REQ-017 |
-| **SLB + 熔断 + 故障转移** | 加权轮询、指数退避重试、熔断器自动恢复 | REQ-006/007 |
-| **输入/输出护栏** | 敏感词（AC 引擎接口预留）、PII 正则脱敏、提示词注入检测、输出内容审核 | REQ-008~011 |
-| **配额 & 限流** | 按天/周/月请求次数或 Token 总量限额；滑动窗口速率限制；超限可降级到其他模型 | REQ-012/013 |
-| **调用审计** | 全量记录每次请求/响应、Token 用量、延迟、拦截原因 | REQ-015 |
-| **操作审计** | 所有配置变更的操作人、时间、前后对比、生效状态追溯 | REQ-003 |
-| **配置热加载** | DB 驱动的增量重载，Manager 原子替换快照，≤3 秒全局生效 | REQ-004/004A |
-| **MFA 管理后台** | TOTP 绑定、备用恢复码、账户锁定策略 | REQ-020~022 |
-| **多数据库** | SQLite(纯 Go)、PostgreSQL、MySQL 一键切换 | NFR-016 |
+| Module | Description | PRD REQ |
+|--------|-------------|---------|
+| **Unified tri-protocol ingress** | OpenAI Chat Completions / Responses / Anthropic Messages behind one entry | REQ-017 |
+| **SLB + circuit breaker + failover** | Weighted round-robin, exponential-backoff retries, automatic breaker recovery | REQ-006/007 |
+| **Input/output guards** | Sensitive-word (AC-engine interface reserved), PII regex masking, prompt-injection detection, output content review | REQ-008~011 |
+| **Quota & rate limiting** | Per day/week/month request-count or token-total quotas; sliding-window rate limiting; over-quota can degrade to another model | REQ-012/013 |
+| **Call audit** | Full recording of every request/response, token usage, latency, and block reason | REQ-015 |
+| **Operation audit** | Every config change tracked by operator, time, before/after diff, and effective-state traceability | REQ-003 |
+| **Hot-reloadable config** | DB-driven incremental reload; the Manager atomically swaps the snapshot; globally effective within ≤3s | REQ-004/004A |
+| **MFA admin console** | TOTP binding, backup recovery codes, account-lockout policies | REQ-020~022 |
+| **Multi-database** | SQLite (pure Go), PostgreSQL, MySQL — switch with one variable | NFR-016 |
 
-## 目录结构
+## Directory Layout
 
 ```
-backend/                          # Go 后端
-├── cmd/server/main.go            # 入口
+backend/                          # Go backend
+├── cmd/server/main.go            # entry point
 ├── internal/
-│   ├── config/config.go          # 环境变量解析
-│   ├── db/db.go                  # 多数据库驱动(GORM)
-│   ├── model/model.go            # 实体定义(GORM 模型)
-│   ├── crypto/crypto.go          # AES-GCM 加密
-│   ├── settings/settings.go      # KV 配置结构体
-│   ├── runtime/manager.go        # 热加载管理器(Snapshot)
-│   ├── guard/engine.go           # 护栏引擎
-│   ├── slb/slb.go                # 负载/熔断
-│   ├── quota/quota.go            # 配额/限流
-│   ├── adapter/                  # 协议适配层
-│   ├── gateway/gateway.go        # 网关代理(含 SSE 流式)
-│   ├── metrics/metrics.go        # QPS/连接数采集
-│   ├── audit/audit.go            # 审计日志写入器
-│   ├── auth/jwt.go               # JWT 签发校验
-│   └── admin/                    # RESTful 管理 API(全部 handler)
-frontend/                         # React 前端
+│   ├── config/config.go          # env-var parsing
+│   ├── db/db.go                  # multi-database driver (GORM)
+│   ├── model/model.go            # entity definitions (GORM models)
+│   ├── crypto/crypto.go          # AES-GCM encryption
+│   ├── settings/settings.go      # KV config structs
+│   ├── runtime/manager.go        # hot-reload manager (Snapshot)
+│   ├── guard/engine.go           # guard engine
+│   ├── slb/slb.go                # load balancing / circuit breaker
+│   ├── quota/quota.go            # quota / rate limit
+│   ├── adapter/                  # protocol adapter layer
+│   ├── gateway/gateway.go        # gateway proxy (incl. SSE streaming)
+│   ├── metrics/metrics.go        # QPS / connection metrics
+│   ├── audit/audit.go            # audit-log writer
+│   ├── auth/jwt.go               # JWT issue / verify
+│   └── admin/                    # RESTful admin API (all handlers)
+frontend/                         # React frontend
 ├── src/
-│   ├── api/                      # axios + 类型 + endpoints
+│   ├── api/                      # axios + types + endpoints
 │   ├── components/               # PageContainer/Charts/JsonView
-│   ├── constants/dicts.ts        # 枚举展示字典
-│   ├── layouts/MainLayout.tsx    # 侧栏导航 + 面包屑
-│   ├── pages/                    # 各业务页面(~20 个)
-│   ├── store/auth.ts             # Zustand 认证态
-│   └── App.tsx                   # 路由表
+│   ├── constants/dicts.ts        # enum display dictionaries
+│   ├── layouts/MainLayout.tsx    # sidebar nav + breadcrumb
+│   ├── pages/                    # business pages (~20)
+│   ├── store/auth.ts             # Zustand auth state
+│   └── App.tsx                   # route table
 ```
 
-## API 文档
+## API Documentation
 
-完整的前后端对接契约见 [docs/api-contract.md](docs/api-contract.md)。  
-管理 API Base URL: `/api/admin/v1`，网关端点: `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages`, `GET /v1/models`（模型目录，OpenAI 兼容）。
+The full front-end ↔ back-end contract is in [docs/api-contract.en.md](docs/api-contract.en.md).  
+Admin API base URL: `/api/admin/v1`. Gateway endpoints: `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages`, `GET /v1/models` (the model catalog, OpenAI-compatible).
 
-## 构建与部署
+## Build & Deployment
 
-CI：GitHub Actions（`.github/workflows/ci.yml`）——push/PR 到 `main`/`cluster` 自动执行
-后端 `gofmt/vet/test -race` → 前端 `tsc + vite build` → Docker 镜像构建（不推送）；
-托管在阿里云 Codeup 时 Flow 流水线按同序复用这三段命令即可。
+CI: GitHub Actions (`.github/workflows/ci.yml`) — on push/PR to `main`/`cluster` it runs backend `gofmt/vet/test -race` → frontend `tsc + vite build` → Docker image build (no push). When hosted on Alibaba Cloud Codeup, a Flow pipeline reuses the same three stages in order.
 
-部署形态为**单进程**：一个 Go 二进制即整个运行时，在 :8080 同时对外提供管理 API、网关端点和前端 SPA，前端不需要 Nginx 或独立 Node 服务。
+The deployment form is **single-process**: one Go binary is the entire runtime, exposing the admin API, gateway endpoints, and frontend SPA on :8080 simultaneously — the frontend needs no Nginx or standalone Node service.
 
-### 单二进制部署（推荐）
+### Single-binary deployment (recommended)
 
 ```bash
-# 1. 构建前端，产物拷入后端 web/dist
+# 1. Build the frontend and copy output into backend/web/dist
 cd frontend && npm run build && cp -r dist ../backend/web/dist
 
-# 2. 编译后端（前端资源为运行时磁盘读取、非内嵌；web/dist 须随二进制一同部署）
+# 2. Build the backend (frontend assets are read from disk at runtime, not embedded; web/dist must ship with the binary)
 cd ../backend && go build -ldflags="-s -w" -o llm-router-guard ./cmd/server
 
-# 3. 运行（工作目录需含二进制与 web/dist；或用 FRONTEND_DIST 指向前端产物绝对路径）
+# 3. Run (working directory must contain the binary and web/dist; or use FRONTEND_DIST to point at the absolute path of the frontend output)
 PORT=8080 DB_TYPE=postgresql DB_DSN="postgres://user:pass@host/gateway" \
 MASTER_KEY="your-strong-secret" ADMIN_PASSWORD="change-me" ./llm-router-guard
 ```
 
-> 部署目录结构：`llm-router-guard`（二进制）+ `web/dist/`（前端产物）。后端**未通过 `go:embed` 内嵌前端**，运行时从磁盘读取，因此 `web/dist` 不可缺失，否则访问 `/` 返回 404。
+> Deployment directory layout: `llm-router-guard` (binary) + `web/dist/` (frontend output). The backend does **not** `go:embed` the frontend; it reads from disk at runtime, so `web/dist` must not be missing, otherwise `GET /` returns 404.
 
 ### Docker Compose
 
@@ -166,30 +166,30 @@ volumes:
   gateway-data:
 ```
 
-详细 Dockerfile 请参考项目根目录下的 `Dockerfile` 和 `docker-compose.yml`。
+See the project-root `Dockerfile` and `docker-compose.yml` for details.
 
-### 数据库切换（SQLite / MySQL / PostgreSQL）
+### Database switching (SQLite / MySQL / PostgreSQL)
 
-通过两个环境变量切换；首次启动 `AutoMigrate` 自动建表，无需手动执行 SQL。
+Switch via two environment variables; first boot runs `AutoMigrate` to create tables, no manual SQL needed.
 
-| 变量 | 说明 |
-|------|------|
-| `DB_TYPE` | `sqlite`（默认）/ `postgres` / `mysql` |
-| `DB_DSN` | 连接串。sqlite 为文件路径；postgres / mysql 为标准 DSN |
+| Variable | Description |
+|----------|-------------|
+| `DB_TYPE` | `sqlite` (default) / `postgres` / `mysql` |
+| `DB_DSN` | Connection string. A file path for sqlite; a standard DSN for postgres / mysql |
 
-**SQLite（默认，零配置）**
+**SQLite (default, zero-config)**
 ```bash
 DB_TYPE=sqlite DB_DSN=gateway.db ./llm-router-guard
-# 也可用绝对路径放到数据卷：DB_DSN=/app/data/gateway.db
+# absolute path on a data volume: DB_DSN=/app/data/gateway.db
 ```
-WAL 模式运行，写连接数为 1（读仍并发）；适合单机 / 小规模。
+Runs in WAL mode with a single write connection (reads still concurrent); suitable for single-machine / small scale.
 
 **PostgreSQL**
 ```bash
 DB_TYPE=postgres \
 DB_DSN="postgres://user:pass@host:5432/gateway?sslmode=disable" \
 ./llm-router-guard
-# 或 key=value 形式：
+# or key=value form:
 DB_DSN="host=pg-host user=gateway password=secret dbname=gateway port=5432 sslmode=disable"
 ```
 
@@ -199,9 +199,9 @@ DB_TYPE=mysql \
 DB_DSN="gateway:secret@tcp(mysql-host:3306)/gateway" \
 ./llm-router-guard
 ```
-> 网关会自动补 `charset=utf8mb4&parseTime=True&loc=Local`（若 DSN 未含），保证时间字段与中文正确；MySQL 库建议 `utf8mb4`。
+> The gateway auto-appends `charset=utf8mb4&parseTime=True&loc=Local` (if the DSN lacks them) to ensure correct time fields and Chinese text; the MySQL database should use `utf8mb4`.
 
-**Docker Compose + PostgreSQL 示例**
+**Docker Compose + PostgreSQL example**
 ```yaml
 services:
   gateway:
@@ -224,53 +224,53 @@ services:
 volumes:
   pg-data:
 ```
-> 切库只改这两个变量，业务表（供应商 / 模型 / 配额 / 审计等）随 `AutoMigrate` 自动建到新库。**库之间不做数据迁移**——切到新 `DB_DSN` 即一个空库，历史数据需自行导出/导入。
+> Switching databases only changes these two variables. Business tables (providers / models / quotas / audit, etc.) are created in the new database via `AutoMigrate`. **No cross-database data migration is performed** — switching to a new `DB_DSN` points at an empty database; export/import historical data yourself.
 
-### 多节点部署（PostgreSQL / MySQL + Redis）
+### Multi-node deployment (PostgreSQL / MySQL + Redis)
 
-横向扩展形态：N 个网关实例（同一二进制 + `web/dist`）+ 前置负载均衡，全部实例指向同一套共享存储。**单节点无需 Redis**，以下仅多实例部署需要。
+Horizontal-scaling form: N gateway instances (same binary + `web/dist`) behind a load balancer, all pointing at the same shared storage. **A single node needs no Redis**; the following applies only to multi-instance deployments.
 
 ```
                   ┌────────────────────────────────┐
-                  │   LB（Nginx / HAProxy / 云 LB） │
-                  │   探活端点: GET /healthz        │
+                  │  LB (Nginx / HAProxy / cloud LB)│
+                  │  health-check: GET /healthz     │
                   └───────────────┬────────────────┘
            ┌──────────────────────┼──────────────────────┐
            ▼                      ▼                      ▼
      ┌────────────┐        ┌────────────┐         ┌────────────┐
-     │ 网关实例 A  │        │ 网关实例 B  │   ...   │ 网关实例 N  │
+     │ Gateway A  │        │ Gateway B  │   ...   │ Gateway N  │
      └──────┬─────┘        └──────┬─────┘         └──────┬─────┘
-            │      所有实例指向同一套共享存储                 │
+            │   all instances point at the same shared storage  │
             └──────────────┬─────────────────────────────┘
                            ▼
     ┌─────────────────────────┐     ┌──────────────────────────┐
-    │  PostgreSQL / MySQL      │     │  Redis（REDIS_ADDR）      │
-    │  配置/配额/审计/API Key  │     │  限流计数/熔断广播/MFA票据 │
+    │  PostgreSQL / MySQL     │     │  Redis (REDIS_ADDR)       │
+    │  config/quota/audit/key │     │  rate-limit/breaker/MFA    │
     └─────────────────────────┘     └──────────────────────────┘
 ```
 
-**多节点环境变量**
+**Multi-node environment variables**
 
-| 变量 | 说明 |
-|------|------|
-| `DB_TYPE` + `DB_DSN` | 所有实例指向**同一个** PostgreSQL / MySQL 库；sqlite 仅限单节点（文件锁 + 单写连接） |
-| `REDIS_ADDR` | Redis 地址 `host:port`，启用分布式限流（原子 INCR 固定窗口）、熔断打开状态广播（SETEX + TTL 自动半开）、MFA 二步票据（GET+DEL 原子核销）、**全局 SWRR 轮询游标**（Lua 原子推进，多实例分流互不重叠；掉线自动降级实例本地游标）。仅 mysql/postgres 生效 |
-| `REDIS_PASSWORD` | Redis 密码；带 `requirepass` 的 Redis 必须配置，否则三组件启动即 `NOAUTH` 降级（行为如实告警） |
-| `HEALTH_CHECK_SECONDS` | 上游健康检查周期秒（默认 30，`0`=禁用）：任何 HTTP 响应（含 401/404）=端点可达=清熔断；仅传输层错误（超时/DNS/连接拒绝）累计，达熔断阈值自动打开。多实例部署探测结果**经 Redis 广播**——任一实例打开熔断，其余实例 ≤1s 同步跳过该供应商 |
-| `TRUSTED_PROXIES` | **LB 后必须设为代理 CIDR**（如 `10.0.0.0/8`）。默认空时 `ClientIP` 取 TCP 对端——不设则 API Key 的 IP 白名单会把所有请求匹配到 LB 地址，白名单形同虚设 |
-| `JWT_SECRET` / `MASTER_KEY` | **所有实例必须完全一致**：前者保证任意实例可校验管理端 JWT，后者保证 API Key 密文（AES-GCM）可解密 |
+| Variable | Description |
+|----------|-------------|
+| `DB_TYPE` + `DB_DSN` | All instances point at the **same** PostgreSQL / MySQL database; sqlite is single-node only (file lock + single write connection) |
+| `REDIS_ADDR` | Redis address `host:port`. Enables distributed rate limiting (atomic INCR fixed window), circuit-breaker-open state broadcast (SETEX + TTL auto-half-open), MFA two-step tickets (atomic GET+DEL redemption), and the **global SWRR round-robin cursor** (Lua atomic advance; multi-instance sharding never overlaps; auto-fallback to per-instance local cursor on disconnect). Effective for mysql/postgres only |
+| `REDIS_PASSWORD` | Redis password; required for instances with `requirepass`, otherwise the three components auto-degrade to single-instance semantics on startup `NOAUTH` (reported honestly) |
+| `HEALTH_CHECK_SECONDS` | Upstream health-check interval in seconds (default 30, `0` = disabled): any HTTP response (incl. 401/404) = endpoint reachable = clears the breaker; only transport-layer errors (timeout / DNS / connection refused) accumulate, and the breaker opens once the threshold is reached. Multi-instance probe results are **broadcast over Redis** — once any instance opens the breaker, all others skip that provider within ≤1s |
+| `TRUSTED_PROXIES` | **Must be set to the proxy CIDRs behind an LB** (e.g. `10.0.0.0/8`). When empty, `ClientIP` uses the TCP peer — if unset, the API-key IP whitelist matches every request against the LB address, making the whitelist useless |
+| `JWT_SECRET` / `MASTER_KEY` | **Must be identical across all instances**: the former lets any instance verify admin JWTs, the latter lets API-key ciphertext (AES-GCM) be decrypted on any instance |
 
-**各状态域跨实例一致性**
+**Cross-instance consistency by state domain**
 
-- **全局一致（DB 承载）**：业务配置、配额（`used_value` 原子累加）、调用/操作审计、API Key/供应商/模型别名/限流规则、管理端 JWT（无状态，任一实例可校验）。
-- **全局一致（Redis 承载，需 `REDIS_ADDR`）**：速率限制（"100/min" 全局精确 429）、SLB 熔断打开状态、MFA 二步登录票据（LB 后任意实例可完成二步验证）、**SWRR 全局轮询游标**（多实例加权分流互补重叠，干净请求路径 Lua 原子推进；故障转移重试路径走实例本地游标）。
-- **实例本地**：SWRR 轮询游标——每实例独立轮询，单实例内分发仍正确，仅全局分布略有偏差（可接受，无需会话亲和）。
+- **Globally consistent (DB-backed)**: business config, quotas (`used_value` atomic increment), call/operation audit, API keys / providers / model aliases / rate-limit rules, admin JWT (stateless; any instance can verify).
+- **Globally consistent (Redis-backed, requires `REDIS_ADDR`)**: rate limiting ("100/min" globally exact 429), SLB breaker-open state, MFA two-step login tickets (any instance behind the LB can complete step two), and the **SWRR global round-robin cursor** (multi-instance weighted sharding never overlaps; clean request paths advance atomically via Lua; failover-retry paths use per-instance local cursors).
+- **Per-instance local**: the SWRR round-robin cursor — each instance rotates independently; distribution within a single instance is still correct, only the global distribution is slightly skewed (acceptable; no session affinity required).
 
-**配置热加载**：任一实例在管理后台变更配置 → DB `config_meta.counter` 递增 → 其余实例 ≤`hot_reload_seconds`（默认 3 秒）内自动重载快照；外部工具直改数据库同样生效（轮询兜底）。
+**Hot-reloadable config**: changing config in the admin console on any instance → increments `config_meta.counter` in the DB → the other instances auto-reload the snapshot within ≤`hot_reload_seconds` (default 3 seconds); external tools editing the DB directly also take effect (polling fallback).
 
-**降级语义**：Redis 不可达（启动探活失败或运行中故障）时自动降级为实例本地限流/熔断语义并打印告警日志，热路径不受阻塞；每 5 秒探活，恢复后自动切回分布式计数。降级期间限流按单实例口径计数（口径放宽），恢复后重新全局精确。
+**Degradation semantics**: if Redis is unreachable (probe failure at startup or a runtime fault), the system auto-degrades to per-instance rate-limit / breaker semantics and logs a warning; the hot path is never blocked. It probes every 5 seconds and switches back to distributed counting on recovery. During degradation, rate limiting is counted per-instance (a looser bound); after recovery it returns to global precision.
 
-**Docker Compose 多节点示例**（双网关 + PG + Redis；`REDIS_PASSWORD` 与实例变量需一致）：
+**Docker Compose multi-node example** (dual gateway + PG + Redis; `REDIS_PASSWORD` must match across instances):
 
 ```yaml
 services:
@@ -303,10 +303,14 @@ volumes:
   pg-data:
 ```
 
-> 前置 LB（Nginx/HAProxy/云 LB）轮询 `gateway-a:8080` / `gateway-b:8080`，探活 `GET /healthz`；LB 与网关间设置 `TRUSTED_PROXIES` 后客户端真实 IP 才会进入 API Key 的 IP 白名单判定。
+> Put a front LB (Nginx / HAProxy / cloud LB) round-robining `gateway-a:8080` / `gateway-b:8080`, health-checking `GET /healthz`. After setting `TRUSTED_PROXIES` between the LB and the gateways, the client's real IP enters the API-key IP-whitelist check.
 
-**多节点实测**：双实例（同机 18080/18082，PG 共库 + Redis）已验证——分布式限流全局 429、熔断跨实例 ≤1s 同步打开 + TTL 自动半开恢复、配置热载跨实例 ≤4s 传播、配额全局精确。可复跑脚本见 `deploy/`（`mn_redis.sh`、`mn_circuit.sh`、`multi_node_redis_test.py`、`multi_node_circuit_test.py`）。
+**Multi-node, measured**: a dual-instance setup (same host, 18080/18082, shared PG + Redis) has been verified — distributed rate limiting 429s globally, breaker opens across instances within ≤1s with TTL-driven auto-half-open recovery, config hot-reload propagates across instances within ≤4s, quotas are globally precise. Re-runnable scripts live in `deploy/` (`mn_redis.sh`, `mn_circuit.sh`, `multi_node_redis_test.py`, `multi_node_circuit_test.py`).
+
+## Development Log
+
+`docs/PROGRESS.md` is the per-round development log (Chinese only). It is not translated; it records iteration history in Chinese.
 
 ## License
 
-内部开源 — 仅供企业自托管部署使用。
+This project is open-sourced under the [Apache License 2.0](LICENSE). See the `LICENSE` file in the repository root.

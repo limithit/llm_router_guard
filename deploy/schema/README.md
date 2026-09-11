@@ -1,3 +1,5 @@
+> 🌐 [English](README.en.md) | **中文**
+
 # schema/ — 基线建库 SQL（MySQL / PostgreSQL）
 
 与后端 GORM 模型（`backend/internal/model/model.go` 的 `AllModels()`，共 16 表）完全对应的

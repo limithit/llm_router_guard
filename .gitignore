@@ -27,3 +27,6 @@ Thumbs.db
 deploy/llm-router-guard-linux-amd64
 
 frontend/tsconfig.tsbuildinfo
+
+# 本地诊断/回归脚本（含硬编码本地凭据，不入库）
+backend/test_quota.py

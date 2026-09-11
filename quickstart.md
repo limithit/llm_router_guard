@@ -1,7 +1,9 @@
+> 🌐 [English](quickstart.en.md) | **中文**
+
 # Quickstart — 5 分钟从零跑通
 
 > 目标：本机起服务 → 配好第一个模型 → 网关成功转发一次请求。
-> 架构、全部环境变量、多节点拓扑请看 [README.md](README.md)；API 契约见 [docs/api-contract.md](docs/api-contract.md)。
+> 架构、全部环境变量、多节点拓扑请看 [README.zh-CN.md](README.zh-CN.md)；API 契约见 [docs/api-contract.md](docs/api-contract.md)。
 
 ## 0. 前置条件
 
@@ -124,7 +126,7 @@ TRUSTED_PROXIES=10.0.0.0/8 ./bin/llm-router-guard    # 每个实例都要设 TRU
 
 `REDIS_ADDR` 生效范围（仅 mysql/postgres）：分布式限流（全局精确 429）、熔断打开状态广播（≤1s 跨实例同步）、
 MFA 二步票据（LB 后任意实例可完成二步登录）、SWRR 全局轮询游标。Redis 故障自动降级单实例语义并告警，恢复自动切回。
-拓扑图 / Compose 双网关模板 / 一致性速查表见 [README 多节点章节](README.md#多节点部署postgresql--mysql--redis)。
+拓扑图 / Compose 双网关模板 / 一致性速查表见 [README 多节点章节](README.zh-CN.md#多节点部署postgresql--mysql--redis)。
 
 ## 7. 开发模式（前端热更新）
 
@@ -244,15 +246,15 @@ Start-Process .\server.exe -WindowStyle Hidden  # Windows（无自动重启，�
 
 ## 9. 故障速查
 
-| 症状 | 原因 / 处理 |
-|------|-------------|
-| 启动日志 `[security] WARNING` 默认密钥 | 生产未换 `JWT_SECRET`/`MASTER_KEY`/`ADMIN_PASSWORD` |
-| `[ratelimit] redis ... NOAUTH ... DEGRADED` | Redis 有 `requirepass` 但没配 `REDIS_PASSWORD`；降级期间限流按单实例口径 |
-| 访问 `/` 返回 404 | 部署目录缺 `web/dist`（前端产物随二进制部署，或用 `FRONTEND_DIST` 指定绝对路径） |
-| 测试连接失败但聊天正常 | 测试连接是严格判据（要求模型列表 JSON）；上游 `/v1/models` 非标准时会报失败，属预期 |
-| 上游转发 502 `unsupported upstream protocol` | 供应商协议字段填了枚举外的值（新版创建/更新时即 400 拦截） |
+| 症状                                                         | 原因 / 处理 |
+|------------------------------------------------------------|-------------|
+| 启动日志 `[security] WARNING` 默认密钥                             | 生产未换 `JWT_SECRET`/`MASTER_KEY`/`ADMIN_PASSWORD` |
+| `[ratelimit] redis ... NOAUTH ... DEGRADED`                | Redis 有 `requirepass` 但没配 `REDIS_PASSWORD`；降级期间限流按单实例口径 |
+| 访问 `/` 返回 404                                              | 部署目录缺 `web/dist`（前端产物随二进制部署，或用 `FRONTEND_DIST` 指定绝对路径） |
+| 测试连接失败但聊天正常                                                | 测试连接是严格判据（要求模型列表 JSON）；上游 `/v1/models` 非标准时会报失败，属预期 |
+| 上游转发 502 `unsupported upstream protocol`                   | 供应商协议字段填了枚举外的值（新版创建/更新时即 400 拦截） |
 | 上游 400 `field MaxTokens invalid, should be in [1, 131072]` | 客户端 `max_tokens` 超出**该厂商**区间（网关不钳制、原样透传）；调到厂商上限内即可 |
-| 推理模型回答为空/极短且 `finish_reason=length` | 思维链耗尽 max_tokens 预算——调大 `max_tokens`（思维链经 `reasoning_content`/`thinking_delta` 透传，可展示） |
-| 客户端 IP 全是 LB 地址 | `TRUSTED_PROXIES` 未设为代理网段 |
-| 端口被占起不来 | `PORT=18080 ./bin/llm-router-guard`；老进程 `fuser -k 8080/tcp`（Linux） |
-| 多实例改配置另一实例几秒后才生效 | 热加载轮询周期，默认 ≤3s（`hot_reload_seconds` 可调）——这是设计内行为 |
+| 推理模型回答为空/极短且 `finish_reason=length`                        | 思维链耗尽 max_tokens 预算——调大 `max_tokens`（思维链经 `reasoning_content`/`thinking_delta` 透传，可展示） |
+| 客户端 IP 全是 SLB 地址                                           | `TRUSTED_PROXIES` 未设为代理网段 |
+| 端口被占起不来                                                    | `PORT=18080 ./bin/llm-router-guard`；老进程 `fuser -k 8080/tcp`（Linux） |
+| 多实例改配置另一实例几秒后才生效                                           | 热加载轮询周期，默认 ≤3s（`hot_reload_seconds` 可调）——这是设计内行为 |

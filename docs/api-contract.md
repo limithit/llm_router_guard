@@ -1,3 +1,5 @@
+> 🌐 [English](api-contract.en.md) | **中文**
+
 # LLM Router Guard — API 契约（前后端对接唯一依据）
 
 Base URL（管理 API）: `/api/admin/v1`
