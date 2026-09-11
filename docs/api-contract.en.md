@@ -165,7 +165,7 @@ InjectionRule object: `{ "id":1,"name":"Ignore system instructions","pattern":"i
 ### 6.4 Output Filtering (REQ-011)
 `GET /guard/output` / `PUT /guard/output`:
 ```json
-{ "enabled":true, "violation_strategy":"replace|block|log", "safe_message":"抱歉，该回答包含不当内容。", "stream_chunk_threshold":256 }
+{ "enabled":true, "violation_strategy":"replace|block|log", "safe_message":"Sorry, this response contains inappropriate content.", "stream_chunk_threshold":256 }
 ```
 
 ---
@@ -195,7 +195,7 @@ Create/Update body: `{ api_key_id, model_alias, quota_type, period, limit, over_
 ### 7.2 Rate Limits (REQ-013)
 CRUD `/rate-limits[/{id}]`; object:
 ```json
-{ "id":1, "api_key_id":0, "api_key_label":"(全局)", "model_alias":"*",
+{ "id":1, "api_key_id":0, "api_key_label":"(global)", "model_alias":"*",
   "window_seconds":60, "max_requests":60, "enabled":true, "total_hits":12 }
 ```
 
@@ -215,7 +215,7 @@ Row object:
 ```json
 { "request_id":"uuid", "created_at":"...", "api_key_label":"team-a", "protocol":"openai_chat",
   "model_alias":"gpt-4", "upstream":"openai-main/gpt-4-0613",
-  "input_preview":"你好...（脱敏截断200字）", "output_preview":"...",
+  "input_preview":"hello... (masked, truncated 200 chars)", "output_preview":"...",
   "prompt_tokens":12, "completion_tokens":34, "latency_ms":850,
   "status":"ok", "blocked":false, "block_category":"", "block_reason":"" }
 ```
@@ -263,7 +263,7 @@ Response `data`:
 ```json
 { "log_level":"info|debug|warn|error", "audit_retention_days":90, "default_timeout_seconds":120,
   "max_connections":1000, "guard_enabled":true, "hot_reload_seconds":3,
-  "listen_port":8080, "listen_port_note":"仅启动参数生效，修改后需重启" }
+  "listen_port":8080, "listen_port_note":"Only effective as a startup parameter; restart required after change" }
 ```
 
 ### 9.2 API Key Management (REQ-002)
@@ -293,7 +293,7 @@ User MFA status: `GET /users?page=&page_size=` → row `{ "id":1,"username":"adm
   "status": "ok",
   "error_message": "",
   "modules": { "providers":12, "model_aliases":8, "keywords":156, "pii_rules":6, "injection_rules":4, "quotas":23, "rate_limits":5, "apikeys":10 },
-  "logs": [ { "time":"...", "module":"providers", "status":"success|error", "message":"供应商配置加载完成 (12项)" } ],
+  "logs": [ { "time":"...", "module":"providers", "status":"success|error", "message":"Providers config loaded (12 items)" } ],
   "history": [ { "version":"v20260902.143022", "created_at":"...", "status":"ok", "message":"..." } ]
 }
 ```

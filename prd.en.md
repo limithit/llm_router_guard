@@ -15,20 +15,20 @@
 
 ## Table of Contents
 
-1. [Project Overview](#一项目概述)
-2. [User Roles and Use Cases](#二用户角色与使用场景)
-3. [Functional Requirements](#三功能需求)
-4. [UI Layout Planning](#四ui界面规划)
-5. [Non-Functional Requirements](#五非功能需求)
-6. [Technical Implementation](#六技术实现方案)
-7. [Deployment Plan](#七部署方案)
-8. [Implementation Roadmap](#八实施路线图)
-9. [Risks and Mitigation](#九风险与应对)
-10. [Success Criteria](#十成功标准)
-11. [Appendix](#十一附录)
+1. [Project Overview](#1-project-overview)
+2. [User Roles and Use Cases](#2-user-roles-and-use-cases)
+3. [Functional Requirements](#3-functional-requirements)
+4. [UI Layout Planning](#4-ui-layout-planning)
+5. [Non-Functional Requirements](#5-non-functional-requirements)
+6. [Technical Implementation](#6-technical-implementation)
+7. [Deployment Plan](#7-deployment-plan)
+8. [Implementation Roadmap](#8-implementation-roadmap)
+9. [Risks and Mitigation](#9-risks-and-mitigation)
+10. [Success Criteria](#10-success-criteria)
+11. [Appendix](#11-appendix)
 
 
-## 一、项目概述
+## 1. Project Overview
 
 ### 1.1 Project Background
 
@@ -80,7 +80,7 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 - WebAuthn/Passkey (to be supported in later iterations)
 
 
-## 二、用户角色与使用场景
+## 2. User Roles and Use Cases
 
 ### 2.1 User Roles
 
@@ -106,7 +106,7 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 | S-009 | Database migration | Operations staff migrate from SQLite to MySQL/PostgreSQL by modifying only the connection configuration, with no business impact |
 
 
-## 三、功能需求
+## 3. Functional Requirements
 
 ### 3.1 System Settings Module
 
@@ -380,39 +380,39 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 | **Recorded Content** | Operator, operation time, operation type, operation IP |
 
 
-## 四、UI 界面规划
+## 4. UI Layout Planning
 
 ### 4.1 Overall Layout
 
 ```
 +----------------------------------------------------------+
-|  AI 网关管理平台  [Logo]                    [用户头像]    |
+|  AI Gateway Admin   [Logo]                    [Avatar]   |
 +--------+-------------------------------------------------+
-| 导航    |  内容区域                                       |
-|         |                                                 |
-| ├ 首页   |  [面包屑]                                      |
-| ├ 模型管理 |                                                 |
-| │ ├ 供应商 |  [页面标题]                                   |
-| │ └ 模型别名 |                                                 |
-| ├ 护栏管理 |                                                 |
-| │ ├ 敏感词 |                                                 |
-| │ ├ PII规则 |                                                 |
-| │ ├ 注入规则 |                                                 |
-| │ └ 输出过滤 |                                                 |
-| ├ 配额管理 |                                                 |
-| │ ├ 配额列表 |                                                 |
-| │ ├ 速率限制 |                                                 |
-| │ └ 预警设置 |                                                 |
-| ├ 审计日志 |                                                 |
-| │ ├ 调用日志 |                                                 |
-| │ └ 操作审计 |                                                 |
-| └ 系统设置 |                                                 |
-|   ├ 通用设置 |                                                 |
-|   ├ API Key  |                                                 |
-|   ├ 安全设置 |  ← MFA 配置                                    |
-|   ├ 配置状态 |  ← 热加载状态查看                              |
-|   ├ 状态监控 |                                                 |
-|   └ 数据备份 |                                                 |
+| Nav    |  Content area                                  |
+|        |                                                 |
+| ├ Home |  [Breadcrumb]                                  |
+| ├ Models |                                                 |
+| │ ├ Providers |  [Page title]                            |
+| │ └ Aliases  |                                                 |
+| ├ Guards |                                                 |
+| │ ├ Sensitive Words |                                                 |
+| │ ├ PII Rules  |                                                 |
+| │ ├ Injection Rules |                                                 |
+| │ └ Output Filter |                                                 |
+| ├ Quotas |                                                 |
+| │ ├ Quota List |                                                 |
+| │ ├ Rate Limits |                                                 |
+| │ └ Alerts     |                                                 |
+| ├ Audit Logs |                                                 |
+| │ ├ Call Logs  |                                                 |
+| │ └ Operation Audit |                                                 |
+| └ System     |                                                 |
+|   ├ General  |                                                 |
+|   ├ API Keys |                                                 |
+|   ├ Security  |  ← MFA config                                 |
+|   ├ Config Status |  ← hot-reload status                       |
+|   ├ Monitor   |                                                 |
+|   └ Backup    |                                                 |
 +--------+-------------------------------------------------+
 ```
 
@@ -445,30 +445,30 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  系统设置 > 配置状态                                                │
+│  System > Config Status                                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  当前配置版本: v20260902.143022                                     │
-│  最后加载时间: 2026-09-02 14:30:22                                 │
-│  加载状态: ✅ 正常                                                  │
-│  已生效配置模块: 供应商(12) 模型别名(8) 敏感词(156) PII规则(6)     │
+│  Current config version: v20260902.143022                           │
+│  Last loaded at:      2026-09-02 14:30:22                           │
+│  Load status: ✅ OK                                                  │
+│  Active modules: Providers(12) Aliases(8) Sensitive(156) PII(6)     │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  📋 最近加载日志                                            │   │
-│  │  14:30:22  [成功] 供应商配置加载完成 (12项)                  │   │
-│  │  14:30:22  [成功] 模型别名配置加载完成 (8项)                 │   │
-│  │  14:30:22  [成功] 敏感词库加载完成 (156项, AC自动机构建)    │   │
-│  │  14:25:10  [成功] 配额规则加载完成 (23项)                    │   │
-│  │  14:20:05  [成功] 供应商 "deepseek-account-3" 新增          │   │
+│  │  📋 Recent load log                                         │   │
+│  │  14:30:22  [ok] Providers loaded (12 items)                 │   │
+│  │  14:30:22  [ok] Model aliases loaded (8 items)              │   │
+│  │  14:30:22  [ok] Sensitive words loaded (156 items, AC built)│   │
+│  │  14:25:10  [ok] Quota rules loaded (23 items)               │   │
+│  │  14:20:05  [ok] Provider "deepseek-account-3" added          │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  [手动重新加载配置]  [导出当前配置]  [回滚到上一版本]              │
+│  [Reload config]  [Export config]  [Rollback to previous]           │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 
-## 五、非功能需求
+## 5. Non-Functional Requirements
 
 | Requirement ID | Category | Description | Target Value |
 |--------|------|------|--------|
@@ -490,7 +490,7 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 | NFR-016 | Database | Supported database types | SQLite / PostgreSQL / MySQL |
 
 
-## 六、技术实现方案
+## 6. Technical Implementation
 
 ### 6.1 Overall Architecture
 
@@ -547,28 +547,28 @@ All configuration is stored in the database, and changes take effect in real tim
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      配置热加载流程                                 │
+│                    Config hot-reload flow                            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  1. 用户在 UI 中提交配置变更（如新增敏感词）                        │
+│  1. User submits a config change in the UI (e.g. add a word)        │
 │     ↓                                                              │
-│  2. 管理 API 将变更写入数据库                                      │
+│  2. Admin API writes the change to the database                     │
 │     ↓                                                              │
-│  3. 触发配置变更事件（通过数据库触发器 / 消息通知 / 定时轮询）     │
+│  3. Config-change event fired (DB trigger / message / polling)      │
 │     ↓                                                              │
-│  4. 核心网关接收变更通知                                           │
+│  4. Core gateway receives the change notification                    │
 │     ↓                                                              │
-│  5. 从数据库重新加载对应模块配置                                    │
+│  5. Reloads the affected module config from the database            │
 │     ↓                                                              │
-│  6. 原子替换内存缓存（新配置在下次请求时生效）                     │
+│  6. Atomically swaps the in-memory cache (new config on next request)│
 │     ↓                                                              │
-│  7. 变更操作记录到操作审计日志                                     │
+│  7. Change recorded in the operation-audit log                      │
 │     ↓                                                              │
-│  8. 加载状态更新到配置状态表，供 UI 展示                           │
+│  8. Load status updated to the config-status table for the UI       │
 │                                                                     │
-│  总耗时：≤ 3 秒                                                     │
-│  已有请求：不受影响（使用旧配置完成处理）                          │
-│  新请求：立即使用新配置                                            │
+│  Total time: ≤ 3 seconds                                            │
+│  In-flight requests: unaffected (completed with old config)         │
+│  New requests: use the new config immediately                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -582,7 +582,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | **Manual Trigger** | User clicks the "Reload Configuration" button in the UI | Emergency scenarios |
 
 
-## 七、部署方案
+## 7. Deployment Plan
 
 ### 7.1 Deployment Methods
 
@@ -608,7 +608,7 @@ All configuration is stored in the database, and changes take effect in real tim
 - Guides the user to create an administrator account and default API Key
 
 
-## 八、实施路线图
+## 8. Implementation Roadmap
 
 ### 8.1 Phased Implementation Plan
 
@@ -637,7 +637,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | M7 | End of week 12 | MFA + production release |
 
 
-## 九、风险与应对
+## 9. Risks and Mitigation
 
 | Risk | Impact | Probability | Mitigation Measures |
 |------|------|------|----------|
@@ -650,7 +650,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | React front-end and back-end embed integration | Complex build process | Low | Use standard go:embed; CI/CD automated build |
 
 
-## 十、成功标准
+## 10. Success Criteria
 
 | Dimension | Metric | Target |
 |------|------|------|
@@ -664,7 +664,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | **User Satisfaction** | Operations efficiency improvement | ≥ 50% |
 
 
-## 十一、附录
+## 11. Appendix
 
 ### 11.1 Glossary
 
