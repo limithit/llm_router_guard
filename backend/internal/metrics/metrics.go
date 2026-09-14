@@ -152,6 +152,19 @@ func (mt *Metrics) RecentErrors() []ErrorEvent {
 }
 
 func (mt *Metrics) ConnInc() { mt.mu.Lock(); mt.conns++; mt.mu.Unlock() }
+
+// TryAdmitConn M-20：检查+占坑一步原子完成（旧的 Conns()>=max 判断与真正使用
+// 之间是 TOCTOU，突发流量可同时穿过闸门）。max<=0 表示不限。
+func (mt *Metrics) TryAdmitConn(max int64) bool {
+	mt.mu.Lock()
+	if max > 0 && mt.conns >= max {
+		mt.mu.Unlock()
+		return false
+	}
+	mt.conns++
+	mt.mu.Unlock()
+	return true
+}
 func (mt *Metrics) ConnDec() {
 	mt.mu.Lock()
 	if mt.conns > 0 {

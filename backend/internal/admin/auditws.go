@@ -12,6 +12,7 @@ package admin
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,11 +27,27 @@ const wsPingInterval = 30 * time.Second
 const wsSubscriberSlowLimit = 512
 
 // auditWS 实时调用审计流。
+// sameOriginHost M-14：Origin(scheme://host[:port]) 的主机部分必须与请求 Host 相同。
+func sameOriginHost(origin, host string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Host == host
+}
+
 func (s *Server) auditWS(c *gin.Context) {
 	// 1) 查询串 JWT 鉴权（浏览器 WS 无法带 Authorization 头）
 	claims, err := auth.Parse(s.secret, c.Query("token"))
 	if err != nil || claims == nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": "Token 无效或已过期，请重新登录"})
+		return
+	}
+
+	// 1b) M-14：CSWSH 防线——浏览器发起的 WS 握手必带 Origin（不可被脚本伪造），
+	// 要求其与请求 Host 同源；无 Origin 头视为非浏览器客户端放行（运维工具兼容）。
+	if origin := c.Request.Header.Get("Origin"); origin != "" && !sameOriginHost(origin, c.Request.Host) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 40302, "message": "cross-origin websocket request rejected"})
 		return
 	}
 

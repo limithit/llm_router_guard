@@ -4,8 +4,10 @@
 package admin
 
 import (
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -102,6 +104,20 @@ func parsePage(c *gin.Context) (int, int) {
 func (s *Server) recordOp(c *gin.Context, action, module, target string, before, after any) {
 	audit.LogOp(s.db, operatorOf(c), action, module, target, before, after, clientIP(c),
 		s.mgr.Status == "ok")
+}
+
+// likeArg L-05：转义用户输入中的 LIKE 通配符（% _ \），防止把搜索框变成
+// 全表模糊扫描器/信息探测器（"%%%"、"_admin_" 之类）。
+func likeArg(kw string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + r.Replace(kw) + "%"
+}
+
+// failInternal L-10：5xx 的驱动/IO 原始错误只进服务端日志，客户端固定文案
+// （SQL 片段/文件路径进 toast 既泄内部信息又无助于用户）。
+func (s *Server) failInternal(c *gin.Context, msg string, err error) {
+	log.Printf("[admin] %s %s failed: %v", c.Request.Method, c.FullPath(), err)
+	s.fail(c, http.StatusInternalServerError, 50001, msg)
 }
 
 func operatorOf(c *gin.Context) string {

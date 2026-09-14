@@ -36,7 +36,7 @@ func (s *Server) listProviders(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.Provider{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("name LIKE ? OR remark LIKE ?", "%"+kw+"%", "%"+kw+"%")
+		q = q.Where("name LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\'", likeArg(kw), likeArg(kw))
 	}
 	var total int64
 	q.Count(&total)
@@ -97,7 +97,7 @@ func (s *Server) createProvider(c *gin.Context) {
 			s.fail(c, 409, 40901, "供应商名称已存在")
 			return
 		}
-		s.fail(c, 500, 50001, "创建失败: "+err.Error())
+		s.failInternal(c, "创建失败", err)
 		return
 	}
 	s.recordOp(c, "create", "provider", p.Name, nil, p)
@@ -150,7 +150,7 @@ func (s *Server) updateProvider(c *gin.Context) {
 			s.fail(c, 409, 40901, "供应商名称已存在")
 			return
 		}
-		s.fail(c, 500, 50001, "更新失败: "+err.Error())
+		s.failInternal(c, "更新失败", err)
 		return
 	}
 	s.recordOp(c, "update", "provider", p.Name, before, p)
@@ -333,12 +333,18 @@ func (s *Server) importProviderModels(c *gin.Context) {
 		s.fail(c, 400, 40001, "请至少选择一个模型")
 		return
 	}
+	// M-24：上游清单不可信（被劫持/恶意供应商可返回巨量垃圾名）——条数与单名封顶，
+	// 拒绝控制字符；否则喂大 SEC-05 的标签基数与磁盘/内存占用。
+	if len(req.Models) > 2000 {
+		s.fail(c, 400, 40001, "单次最多导入 2000 个模型")
+		return
+	}
 	created, added, skippedNames := 0, 0, []string{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, raw := range req.Models {
 			name := strings.TrimSpace(raw)
-			if name == "" {
-				continue
+			if name == "" || len(name) > 128 || strings.ContainsAny(name, "\r\n\t\x00") {
+				continue // 静默丢弃非法名（清单里出现控制字符=上游响应异常信号）
 			}
 			var a model.ModelAlias
 			if err := tx.Where("alias = ?", name).First(&a).Error; err == nil {
@@ -375,7 +381,7 @@ func (s *Server) importProviderModels(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		s.fail(c, 500, 50001, "导入失败: "+err.Error())
+		s.failInternal(c, "导入失败", err)
 		return
 	}
 	s.recordOp(c, "import", "model_alias", p.Name, nil,

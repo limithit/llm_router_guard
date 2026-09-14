@@ -35,7 +35,7 @@ func (s *Server) listModels(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.ModelAlias{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("alias LIKE ?", "%"+kw+"%")
+		q = q.Where("alias LIKE ? ESCAPE '\\'", likeArg(kw))
 	}
 	var total int64
 	q.Count(&total)
@@ -158,7 +158,7 @@ func (s *Server) createModel(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		s.fail(c, 500, 50001, "创建失败: "+err.Error())
+		s.failInternal(c, "创建失败", err)
 		return
 	}
 	s.recordOp(c, "create", "model_alias", req.Alias, nil, req)
@@ -212,7 +212,7 @@ func (s *Server) updateModel(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		s.fail(c, 500, 50001, "更新失败: "+err.Error())
+		s.failInternal(c, "更新失败", err)
 		return
 	}
 	s.recordOp(c, "update", "model_alias", req.Alias, nil, req)

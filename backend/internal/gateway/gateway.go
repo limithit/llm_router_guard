@@ -46,6 +46,36 @@ type Server struct {
 	mx         *metrics.Metrics
 	httpClient *http.Client
 	lastUsed   sync.Map // apiKeyID -> unix seconds
+	admMu      sync.Mutex
+	adm        map[uint]int // 每 Key 在途请求数（M-20）
+}
+
+// perKeyConnsLimit M-20：单 Key 并发在途上限（全局 MaxConnections 之外的公平性闸门，
+// 防止一把泄露的 Key 用大包并发吃光全机配额）。
+const perKeyConnsLimit = 64
+
+func (s *Server) acquireConn(keyID uint, maxConns int64) bool {
+	if !s.mx.TryAdmitConn(maxConns) {
+		return false
+	}
+	s.admMu.Lock()
+	if s.adm[keyID] >= perKeyConnsLimit {
+		s.admMu.Unlock()
+		s.mx.ConnDec()
+		return false
+	}
+	s.adm[keyID]++
+	s.admMu.Unlock()
+	return true
+}
+
+func (s *Server) releaseConn(keyID uint) {
+	s.mx.ConnDec()
+	s.admMu.Lock()
+	if s.adm[keyID]--; s.adm[keyID] <= 0 {
+		delete(s.adm, keyID) // 防 map 无界增长
+	}
+	s.admMu.Unlock()
 }
 
 // rateLimitAllow 限流判定接口：单机内存版与 Redis 分布式版实现同一签名，
@@ -57,7 +87,7 @@ type rateLimitAllow interface {
 func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, rl rateLimitAllow,
 	qm *quota.QuotaManager, al *audit.Logger, mx *metrics.Metrics) *Server {
 	return &Server{
-		db: gdb, mgr: mgr, bl: bl, rl: rl, qm: qm, auditLog: al, mx: mx,
+		db: gdb, mgr: mgr, bl: bl, rl: rl, qm: qm, auditLog: al, mx: mx, adm: map[uint]int{},
 		// M-01：统一经 httpclient 工厂——拒绝一切 3xx 跟随（x-api-key 不随重定向外泄）
 		httpClient: httpclient.NewTransported(0, &http.Transport{
 			MaxIdleConns: 200, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second,
@@ -119,9 +149,19 @@ func clientError(c *gin.Context, proto adapter.Protocol, status int, msg, errTyp
 // CountTokens POST /v1/messages/count_tokens：Claude Code 等 anthropic 客户端发大请求前的
 // 预算探测。不调上游，本地按 ~4 字节/token 粗估（与 estimateUsage 同量级），返回 anthropic 格式。
 func (s *Server) CountTokens(c *gin.Context) {
+	// M-17：预算探测同样是 16MiB 级体读取，须过同一道原子准入（此前游离在外）
+	snapT := s.mgr.Get()
+	if rec, ok := c.MustGet("apikey").(*model.APIKey); ok {
+		if !s.acquireConn(rec.ID, int64(snapT.General.MaxConnections)) {
+			clientError(c, adapter.ProtoAnthropic, http.StatusServiceUnavailable,
+				"gateway is overloaded: too many connections", "overloaded_error", "too_many_connections")
+			return
+		}
+		defer s.releaseConn(rec.ID)
+	}
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 16<<20))
 	if err != nil {
-		clientError(c, adapter.ProtoAnthropic, http.StatusBadRequest, err.Error(), "invalid_request_error", "bad_body")
+		clientError(c, adapter.ProtoAnthropic, http.StatusBadRequest, "failed to read request body", "invalid_request_error", "bad_body")
 		return
 	}
 	cr, err := adapter.ParseRequest(adapter.ProtoAnthropic, body)
@@ -332,11 +372,18 @@ func (s *Server) settleQuota(ap *auditParams, actualTokens int64) {
 // Handle 返回一个协议端点的 gin 处理器。
 func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		s.mx.ConnInc()
-		defer s.mx.ConnDec()
 		start := time.Now()
 		snap := s.mgr.Get()
 		apiKey := c.MustGet("apikey").(*model.APIKey)
+		// M-17/M-20：先原子占坑再做任何昂贵工作（体读取/解析/护栏）。
+		// 旧实现是"检查 Conns()>=max → 不占坑"的 TOCTOU，且无每 Key 上限，
+		// 单 Key 可用大包并发吃光全机内存/CPU 后才发现超限。
+		if !s.acquireConn(apiKey.ID, int64(snap.General.MaxConnections)) {
+			clientError(c, clientProto, http.StatusServiceUnavailable,
+				"gateway is overloaded: too many connections", "overloaded_error", "too_many_connections")
+			return
+		}
+		defer s.releaseConn(apiKey.ID)
 		s.touchLastUsed(apiKey.ID)
 		reqID, clientID := resolveRequestID(c)
 		// 响应回带：客户端收到响应后可凭此 ID 在审计（request_id 列）中定位本次调用

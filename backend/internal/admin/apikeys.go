@@ -51,7 +51,7 @@ func (s *Server) listApiKeys(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.APIKey{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("name LIKE ?", "%"+kw+"%")
+		q = q.Where("name LIKE ? ESCAPE '\\'", likeArg(kw))
 	}
 	var total int64
 	q.Count(&total)

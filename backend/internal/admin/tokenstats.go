@@ -124,7 +124,7 @@ func applyTokenFilters(q *gorm.DB, p tokenStatsParams) *gorm.DB {
 		q = q.Where("api_key_id = ?", p.apiKeyID)
 	}
 	if p.modelAlias != "" {
-		q = q.Where("model_alias LIKE ?", "%"+p.modelAlias+"%")
+		q = q.Where("model_alias LIKE ? ESCAPE '\\'", likeArg(p.modelAlias))
 	}
 	return q
 }
@@ -274,7 +274,7 @@ func (s *Server) exportTokenStats(c *gin.Context) {
 	w.Write([]string{"api_key_id", "api_key", "calls", "prompt_tokens", "completion_tokens", "total_tokens"})
 	for _, r := range rows {
 		w.Write([]string{
-			strconv.Itoa(int(r.id)), r.label,
+			strconv.Itoa(int(r.id)), csvCell(r.label),
 			strconv.FormatInt(r.row.CallCount, 10),
 			strconv.FormatInt(r.row.Prompt, 10),
 			strconv.FormatInt(r.row.Completion, 10),

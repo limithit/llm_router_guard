@@ -100,10 +100,11 @@ func (s *Server) exportCallLogs(c *gin.Context) {
 	w := csv.NewWriter(&sb)
 	w.Write([]string{"request_id", "created_at", "api_key", "protocol", "model", "upstream", "tokens", "latency_ms", "status", "blocked", "reason"})
 	for _, r := range rows {
-		w.Write([]string{r.RequestID, r.CreatedAt.Format(time.RFC3339), r.APIKeyLabel, r.Protocol,
-			r.ModelAlias, upstreamLabel(r.UpstreamProvider, r.UpstreamModel),
+		// M-05：request_id/model/reason 均含租户可控成分，公式前缀必须转义
+		w.Write([]string{r.RequestID, r.CreatedAt.Format(time.RFC3339), csvCell(r.APIKeyLabel), r.Protocol,
+			csvCell(r.ModelAlias), csvCell(upstreamLabel(r.UpstreamProvider, r.UpstreamModel)),
 			strconv.Itoa(r.PromptTokens + r.CompletionTokens),
-			strconv.FormatInt(r.LatencyMs, 10), r.Status, strconv.FormatBool(r.Blocked), r.BlockReason})
+			strconv.FormatInt(r.LatencyMs, 10), r.Status, strconv.FormatBool(r.Blocked), csvCell(r.BlockReason)})
 	}
 	w.Flush()
 	c.Header("Content-Disposition", "attachment; filename=call-logs.csv")
@@ -125,7 +126,7 @@ func (s *Server) callLogQuery(c *gin.Context) *gorm.DB {
 		}
 	}
 	if v := c.Query("model"); v != "" {
-		q = q.Where("model_alias LIKE ?", "%"+v+"%")
+		q = q.Where("model_alias LIKE ? ESCAPE '\\'", likeArg(v))
 	}
 	if v := c.Query("status"); v != "" {
 		q = q.Where("status = ?", v)
@@ -134,7 +135,7 @@ func (s *Server) callLogQuery(c *gin.Context) *gorm.DB {
 		q = q.Where("blocked = ?", v == "true")
 	}
 	if v := c.Query("category"); v != "" {
-		q = q.Where("block_category LIKE ?", "%"+v+"%")
+		q = q.Where("block_category LIKE ? ESCAPE '\\'", likeArg(v))
 	}
 	return q
 }
@@ -178,8 +179,8 @@ func (s *Server) exportOpLogs(c *gin.Context) {
 	w := csv.NewWriter(&sb)
 	w.Write([]string{"id", "time", "operator", "action", "module", "target", "ip", "effective", "before", "after"})
 	for _, r := range rows {
-		w.Write([]string{strconv.Itoa(int(r.ID)), r.CreatedAt.Format(time.RFC3339), r.Operator,
-			r.Action, r.Module, r.Target, r.IP, strconv.FormatBool(r.Effective), r.BeforeJSON, r.AfterJSON})
+		w.Write([]string{strconv.Itoa(int(r.ID)), r.CreatedAt.Format(time.RFC3339), csvCell(r.Operator),
+			csvCell(r.Action), csvCell(r.Module), csvCell(r.Target), csvCell(r.IP), strconv.FormatBool(r.Effective), csvCell(r.BeforeJSON), csvCell(r.AfterJSON)})
 	}
 	w.Flush()
 	c.Header("Content-Disposition", "attachment; filename=operation-logs.csv")

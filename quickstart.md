@@ -244,7 +244,48 @@ nohup ./llm-router-guard > gateway.log 2>&1 &   # Linux/macOS；echo $! > gatewa
 Start-Process .\server.exe -WindowStyle Hidden  # Windows（无自动重启，生产用上面三种）
 ```
 
-## 9. 故障速查
+## 9. TLS 终结（生产必做）
+
+进程本身**不做 HTTPS**——管理台 JWT、网关 `sk-` Key 在明文线路上即被截获，公网部署必须经反代终结 TLS（M-16）。
+
+Caddy（自动证书，最省事）：
+
+```caddyfile
+gw.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+nginx（手动证书 + HSTS + SSE 不缓冲）：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name gw.example.com;
+    ssl_certificate     /etc/letsencrypt/live/gw.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gw.example.com/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    client_max_body_size 32m;   # 16MiB 请求体 + 余量
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;      # 审计实时推送 WebSocket
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;                          # SSE 流式透传必须关缓冲
+        proxy_read_timeout 600s;                     # 大于网关默认超时
+    }
+}
+server { listen 80; server_name gw.example.com; return 301 https://$host$request_uri; }
+```
+
+配套注意：
+
+- 只有配置了 `TRUSTED_PROXIES`（如 `127.0.0.1` 或反代网段 CIDR）网关才信任 `X-Forwarded-For`；不配则一律以直连 IP 判定。让网关端口只对反代开放，客户端 IP 伪造即不可行。
+- 网关监听地址用防火墙/绑定收敛到仅反代可达；`/metrics` 设 `METRICS_TOKEN` 开 Bearer 鉴权，或仅限内网抓取。
+
+## 10. 故障速查
 
 | 症状                                                         | 原因 / 处理 |
 |------------------------------------------------------------|-------------|

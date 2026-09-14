@@ -98,7 +98,7 @@ func CheckInput(snap *runtime.Snapshot, text string) (vd Verdict) {
 			Value: fmt.Sprintf("%s x%d", r.Raw.Name, len(loc)), Category: "pii." + r.Raw.Category, Action: r.Raw.Action})
 		switch r.Raw.Action {
 		case "mask":
-			vd.Text = r.Re.ReplaceAllString(vd.Text, repl)
+			vd.Text = r.Re.ReplaceAllLiteralString(vd.Text, repl) // M-28：替换串按字面处理（旧版会把 "$1" 展开为捕获组，可能泄出原文）
 		case "block":
 			if !vd.Blocked {
 				vd.Blocked = true
@@ -151,7 +151,7 @@ func CheckOutput(snap *runtime.Snapshot, text string) (vd Verdict) {
 			if repl == "" {
 				repl = "[REDACTED]"
 			}
-			vd.Text = r.Re.ReplaceAllString(vd.Text, repl)
+			vd.Text = r.Re.ReplaceAllLiteralString(vd.Text, repl) // M-28：替换串按字面处理（旧版会把 "$1" 展开为捕获组，可能泄出原文）
 			vd.Findings = append(vd.Findings, Finding{Type: "pii", Value: r.Raw.Name, Category: "output.pii." + r.Raw.Category, Action: "mask"})
 		}
 	}

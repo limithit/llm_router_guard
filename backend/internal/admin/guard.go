@@ -23,7 +23,7 @@ func (s *Server) listKeywords(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.GuardKeyword{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("word LIKE ?", "%"+kw+"%")
+		q = q.Where("word LIKE ? ESCAPE '\\'", likeArg(kw))
 	}
 	if v := c.Query("category"); v != "" {
 		q = q.Where("category = ?", v)
@@ -260,7 +260,7 @@ func (s *Server) listPiiRules(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.PIIRule{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("name LIKE ?", "%"+kw+"%")
+		q = q.Where("name LIKE ? ESCAPE '\\'", likeArg(kw))
 	}
 	var total int64
 	q.Count(&total)
@@ -366,7 +366,7 @@ func (s *Server) listInjectionRules(c *gin.Context) {
 	page, size := parsePage(c)
 	q := s.db.Model(&model.InjectionRule{})
 	if kw := c.Query("keyword"); kw != "" {
-		q = q.Where("name LIKE ?", "%"+kw+"%")
+		q = q.Where("name LIKE ? ESCAPE '\\'", likeArg(kw))
 	}
 	var total int64
 	q.Count(&total)

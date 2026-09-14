@@ -219,64 +219,63 @@ func (bl *Balancer) reconcileCursor(alias string, ups []runtime.ResolvedUpstream
 }
 
 // Pick 按平滑加权轮询选取一个未尝试且未熔断的上游；全部不可用时返回 false。
+// M-21：全局互斥只包裹纯内存操作——Redis 游标推进（最多 300ms RTT）挪到锁外，
+// 否则一次网络抖动会把所有经网关请求的选路串行化。
 func (bl *Balancer) Pick(alias string, ups []runtime.ResolvedUpstream, tried map[uint]bool) (runtime.ResolvedUpstream, bool) {
 	bl.mu.Lock()
+	cands, total := bl.selectCandidatesLocked(alias, ups, tried, true)
+	useRemote := len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get()
+	bl.mu.Unlock()
+
+	if total <= 0 || len(cands) == 0 {
+		return runtime.ResolvedUpstream{}, false
+	}
+	if useRemote {
+		if picked, ok := bl.swrrRemote(alias, cands); ok {
+			return picked, true
+		}
+	}
+	bl.mu.Lock()
 	defer bl.mu.Unlock()
+	return swrrPick(bl.reconcileCursor(alias, ups), cands, total), true
+}
 
-	cw := bl.reconcileCursor(alias, ups)
-
+// selectCandidatesLocked 健康/试选过滤 + 权重和；调用方须持有 bl.mu。
+func (bl *Balancer) selectCandidatesLocked(alias string, ups []runtime.ResolvedUpstream, tried map[uint]bool, respectBreaker bool) ([]runtime.ResolvedUpstream, int) {
+	bl.reconcileCursor(alias, ups)
 	var candidates []runtime.ResolvedUpstream
 	total := 0
 	for _, u := range ups {
 		if tried[u.ProviderID] {
 			continue
 		}
-		if !bl.healthy(bl.breakerLocked(u.ProviderID), u.ProviderID) {
+		if respectBreaker && !bl.healthy(bl.breakerLocked(u.ProviderID), u.ProviderID) {
 			continue
 		}
 		candidates = append(candidates, u)
 		total += u.Weight
 	}
-	if total <= 0 || len(candidates) == 0 {
-		return runtime.ResolvedUpstream{}, false
-	}
-
-	// 全局游标路径（#16）：无 tried 排除（干净请求）且 Redis 可用 →
-	// 用健康过滤后的候选集原子推进共享游标；失败/降级回落本地游标。
-	if len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get() {
-		if picked, ok := bl.swrrRemote(alias, candidates); ok {
-			return picked, true
-		}
-	}
-	return swrrPick(cw, candidates, total), true
+	return candidates, total
 }
 
 // PickIgnoringCircuit 所有上游都在熔断时兜底使用（可用性优先），仍按 SWRR 轮询。
 func (bl *Balancer) PickIgnoringCircuit(alias string, ups []runtime.ResolvedUpstream, tried map[uint]bool) (runtime.ResolvedUpstream, bool) {
 	bl.mu.Lock()
-	defer bl.mu.Unlock()
+	cands, total := bl.selectCandidatesLocked(alias, ups, tried, false)
+	useRemote := len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get()
+	bl.mu.Unlock()
 
-	cw := bl.reconcileCursor(alias, ups)
-
-	var candidates []runtime.ResolvedUpstream
-	total := 0
-	for _, u := range ups {
-		if tried[u.ProviderID] {
-			continue
-		}
-		candidates = append(candidates, u)
-		total += u.Weight
-	}
-	if total <= 0 || len(candidates) == 0 {
+	if total <= 0 || len(cands) == 0 {
 		return runtime.ResolvedUpstream{}, false
 	}
-
-	if len(tried) == 0 && bl.rdb != nil && !bl.redisDown.get() {
-		if picked, ok := bl.swrrRemote(alias, candidates); ok {
+	if useRemote {
+		if picked, ok := bl.swrrRemote(alias, cands); ok {
 			return picked, true
 		}
 	}
-	return swrrPick(cw, candidates, total), true
+	bl.mu.Lock()
+	defer bl.mu.Unlock()
+	return swrrPick(bl.reconcileCursor(alias, ups), cands, total), true
 }
 
 // swrrPick 执行一步平滑加权轮询：每个候选 currentWeight += weight，

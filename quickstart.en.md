@@ -233,7 +233,48 @@ nohup ./llm-router-guard > gateway.log 2>&1 &   # Linux/macOS; echo $! > gateway
 Start-Process .\server.exe -WindowStyle Hidden  # Windows (no auto-restart; use one of the above for production)
 ```
 
-## 9. Troubleshooting quick-reference
+## 9. TLS termination (required in production)
+
+The process itself serves **no HTTPS** — admin JWTs and gateway `sk-` keys would travel in cleartext, so any public deployment must terminate TLS at a reverse proxy (M-16).
+
+Caddy (automatic certificates, simplest):
+
+```caddyfile
+gw.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+nginx (manual cert + HSTS + unbuffered SSE):
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name gw.example.com;
+    ssl_certificate     /etc/letsencrypt/live/gw.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gw.example.com/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    client_max_body_size 32m;   # 16MiB request bodies + headroom
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;      # live-audit WebSocket
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;                          # required for SSE streaming
+        proxy_read_timeout 600s;                     # above the gateway's default timeout
+    }
+}
+server { listen 80; server_name gw.example.com; return 301 https://$host$request_uri; }
+```
+
+Also note:
+
+- `X-Forwarded-For` is trusted only when `TRUSTED_PROXIES` is set (e.g. `127.0.0.1` or the proxy CIDR); otherwise direct-connection IPs are used. Expose the gateway port only to the proxy and client-IP spoofing becomes impossible.
+- Bind/firewall the gateway so only the proxy can reach it; set `METRICS_TOKEN` to require Bearer on `/metrics`, or keep scraping internal-only.
+
+## 10. Troubleshooting quick-reference
 
 | Symptom | Cause / Fix |
 |---------------------------------------------|-------------|

@@ -63,6 +63,7 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		return
 	}
 	var data string
+	src := "上传内容"
 	if req.ID > 0 {
 		var r model.BackupRecord
 		if err := s.db.First(&r, req.ID).Error; err != nil {
@@ -70,6 +71,7 @@ func (s *Server) restoreBackup(c *gin.Context) {
 			return
 		}
 		data = r.Content
+		src = r.Filename
 	} else {
 		data = req.Content
 	}
@@ -82,7 +84,14 @@ func (s *Server) restoreBackup(c *gin.Context) {
 		s.fail(c, http.StatusInternalServerError, 50001, "恢复失败: "+err.Error())
 		return
 	}
-	s.recordOp(c, "restore", "backup", fmt.Sprintf("backup#%d", req.ID), nil, nil)
+	// M-32：全量覆盖是最高危的写操作——审计必须能回答"从哪恢复了什么规模的东西"
+	// （旧记录 target=backup#0、前后值皆空，事后完全不可复核）。
+	s.recordOp(c, "restore", "backup", src, nil, gin.H{
+		"source": src, "bytes": len(data),
+		"providers": len(b.Providers), "aliases": len(b.Aliases),
+		"keywords": len(b.Keywords), "quotas": len(b.Quotas), "settings": len(b.Settings),
+		"exported_at": b.ExportedAt,
+	})
 	s.mgr.Bump()
 	s.ok(c, nil)
 }

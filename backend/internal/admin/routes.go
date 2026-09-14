@@ -2,6 +2,8 @@
 package admin
 
 import (
+	"crypto/subtle"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,9 +18,22 @@ import (
 // Register 在 gin 实例上注册所有路由。
 func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
-	// Prometheus 抓取端点（P2 #6）：文本 v0.0.4，零依赖；建议仅内网/监控网段可达
-	// （LB/网关层限制），故不做 JWT 鉴权——鉴权会让抓取端无法简单配置。
+	// Prometheus 抓取端点（P2 #6 / M-11）：默认保持开放以兼容朴素抓取配置，
+	// 但一旦设置 METRICS_TOKEN 即强制 Bearer（常量时间比较）。
+	// 未设 token 时暴露面靠部署层（内网/LB 放行）——启动日志已提示。
+	metricsToken := os.Getenv("METRICS_TOKEN")
+	if metricsToken == "" {
+		log.Printf("[security] WARNING: /metrics is UNAUTHENTICATED (model inventory, traffic and token volumes). Set METRICS_TOKEN or restrict to internal network.")
+	}
 	r.GET("/metrics", func(c *gin.Context) {
+		if metricsToken != "" {
+			authz := c.GetHeader("Authorization")
+			got := strings.TrimPrefix(authz, "Bearer ")
+			if authz == got || subtle.ConstantTimeCompare([]byte(got), []byte(metricsToken)) != 1 {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": "metrics token required"})
+				return
+			}
+		}
 		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		s.mx.WritePromRender(c.Writer, s)
 	})

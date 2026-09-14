@@ -8,6 +8,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -90,11 +92,12 @@ type Manager struct {
 	trigger chan struct{}
 	busy    atomic.Bool
 
-	mu      sync.Mutex
-	dbCount int64 // 上次加载时 DB 中的 counter
-	Version string
-	Status  string
-	Err     string
+	mu          sync.Mutex
+	dbCount     int64 // 上次加载时 DB 中的 counter
+	Version     string
+	Status      string
+	Err         string
+	lastVerHash string // M-22：上一条已落库版本快照的内容指纹
 }
 
 func NewManager(gdb *gorm.DB, enc *crypto.Cipher) *Manager {
@@ -388,12 +391,33 @@ func (m *Manager) setError(msg string) {
 }
 
 // recordVersion 写 ConfigVersion（含全量快照 JSON）+ 逐模块加载日志（REQ-004A）。
+// M-22：快照内容+状态与上一条完全相同时不重复落大行（Bump 风暴/周期触发下的写放大），
+// 只推进 meta；回滚目标因此始终是"真实不同的上一状态"而非无操作副本。
 func (m *Manager) recordVersion(snap *Snapshot, status, errMsg, reason string) {
 	bundle := m.exportBundleFrom(snap)
 	sj := ""
 	if b, err := json.Marshal(bundle); err == nil {
 		sj = string(b)
 	}
+	sum := sha256.Sum256([]byte(sj + "\x00" + status))
+	h := hex.EncodeToString(sum[:])
+
+	m.mu.Lock()
+	dup := status == "ok" && h == m.lastVerHash
+	if !dup {
+		m.lastVerHash = h
+	}
+	m.mu.Unlock()
+	if dup {
+		var meta settings.ConfigMeta
+		_ = settings.LoadKV(m.db, model.SetKeyConfigMeta, &meta, settings.ConfigMeta{})
+		meta.Version = snap.Version
+		meta.Status = status
+		meta.ErrMessage = errMsg
+		_ = settings.SaveKV(m.db, model.SetKeyConfigMeta, meta)
+		return
+	}
+
 	ver := model.ConfigVersion{Version: snap.Version, SnapshotJSON: sj, Status: status,
 		Message: fmt.Sprintf("[%s] %s", reason, errMsg)}
 	m.db.Create(&ver)
