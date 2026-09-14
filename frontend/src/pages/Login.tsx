@@ -43,7 +43,10 @@ export default function Login() {
       const res = await authApi.login(body);
       if ('token' in res && res.token) {
         setAuth(res.token, res.user);
-        if (res.need_bind_mfa) {
+        if (res.need_change_password) {
+          // SEC-02：受限会话（scope=pw），引导强制改密
+          navigate('/change-password', { replace: true });
+        } else if (res.need_bind_mfa) {
           message.warning(t('login.needBindMfa'));
           navigate('/account/security', { replace: true });
         } else {
@@ -59,13 +62,13 @@ export default function Login() {
       }
       message.error(t('login.loginResponseInvalid'));
     } catch (e) {
-      // 登录失败：账密错误 / MFA 码错误 / 账户锁定等统一提示，不暴露具体原因（防枚举）。
-      // HTTP 拦截器对 401 已静默处理（redirectToLogin 在 /login 页是 no-op），这里给出用户可见提示。
+      // 401：全局拦截器刻意静默（它服务于「过期跳登录」），这里给出统一通用提示（防枚举）。
+      // 403（口令正确但账户锁定）/429（IP 限频）：拦截器已展示安全文案，不重复弹。
       const status = (e as { response?: { status?: number } }).response?.status;
       const code = (e as { code?: number }).code;
       if (status === 401 || code === 40101 || code === 40102 || code === 40103) {
         message.error(t('login.invalidCredentials'));
-      } else {
+      } else if (!status) {
         // 网络错误 / 超时等，非鉴权失败，不伪装成账密错误
         message.error(t('common.networkError'));
       }

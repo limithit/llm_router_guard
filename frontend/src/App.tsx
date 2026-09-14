@@ -8,6 +8,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { isLoggedIn } from './store/auth';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import NotFound from './pages/NotFound';
 
 /**
@@ -82,6 +83,7 @@ export default function App() {
             <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/change-password" element={<ChangePassword />} />
                 <Route
                   element={
                     <RequireAuth>

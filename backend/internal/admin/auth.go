@@ -1,4 +1,11 @@
 // auth.go 管理后台登录 / 个人信息 / 修改密码 / MFA 自助绑定（REQ-020~022）。
+// 安全加固（SEC-02/08/09/13、M-03/M-07/M-09/M-10）：
+//   - 用户名不存在与密码错误返回同一消息、同一耗时路径（dummy bcrypt），锁定状态仅在
+//     口令正确后披露（防枚举）；
+//   - /auth/login per-IP 限速（loginLimit），失败计数原子自增（并发不可绕过 5 次锁定）；
+//   - 登出/改密/被解绑 MFA 均吊销该用户全部在发 JWT（sessions_invalid_before）；
+//   - 强制改密与「全员必须 MFA」由服务端硬性生效：签发受限 scope 会话，
+//     中间件按路由白名单门控（此前只是响应里的建议位）。
 package admin
 
 import (
@@ -7,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"llmrouter/internal/auth"
 	"llmrouter/internal/crypto"
@@ -15,6 +23,15 @@ import (
 )
 
 func (s *Server) mfa() mfaStore { return s.mfaStateInstance }
+
+// dummyBcryptHash 用于「用户名不存在」路径的等时 bcrypt 比对（M-10：消除计时侧信道）。
+var dummyBcryptHash = func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("llm-router-guard:timing-equalizer"), bcrypt.DefaultCost)
+	if err != nil {
+		return []byte("$2a$10$0000000000000000000000000000000000000000000000000000")
+	}
+	return h
+}()
 
 // ---- 登录 ----
 
@@ -30,20 +47,32 @@ func (s *Server) login(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	var u model.AdminUser
-	if err := s.db.Where("username = ?", req.Username).First(&u).Error; err != nil {
-		s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
+	// SEC-08/M-03：per-IP 固定窗口限速（同时封顶匿名 bcrypt CPU 放大）
+	ip := clientIP(c)
+	now := time.Now()
+	if !s.loginLimiter.allow(ip, now) {
+		c.Header("Retry-After", itoa(s.loginLimiter.retryAfter(ip, now)))
+		s.fail(c, http.StatusTooManyRequests, 42901, "尝试过于频繁，请稍后再试")
 		return
 	}
-	if u.IsLocked() {
-		s.fail(c, http.StatusForbidden, 40301, "账户已被锁定，请稍后再试或联系管理员解锁")
+
+	var u model.AdminUser
+	if err := s.db.Where("username = ?", req.Username).First(&u).Error; err != nil {
+		// 不存在的用户：跑一次 dummy bcrypt 保持与真实路径等时，返回同一消息（M-10）
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
+		s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
 		return
 	}
 
 	sec := s.securitySettings()
 
-	// MFA 二步验证（全局开关开启 且 用户已绑定）
+	// MFA 二步（携带一级签发的票据）：票据一次性核销 + 二次因素校验
 	if req.MFAToken != "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+			s.onLoginFail(&u)
+			s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
+			return
+		}
 		uid, ok := s.mfa().PopLoginTicket(req.MFAToken)
 		if !ok {
 			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据已失效，请重新登录")
@@ -54,33 +83,38 @@ func (s *Server) login(c *gin.Context) {
 			return
 		}
 		ok2 := false
-		if req.TotpCode != "" && validateTOTP(req.TotpCode, u.MFASecret) {
-			ok2 = true
-		} else if req.RecoveryCode != "" {
-			if used, next := consumeRecoveryCode(req.RecoveryCode, u.RecoveryCodesJSON); used {
+		if req.TotpCode != "" {
+			if step, okStep := s.verifyTOTP(&u, req.TotpCode); okStep {
 				ok2 = true
-				s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
-					Update("recovery_codes_json", next)
+				s.persistTOTPStep(u.ID, step)
 			}
+		} else if req.RecoveryCode != "" {
+			ok2 = s.consumeRecoveryCAS(&u, req.RecoveryCode)
 		}
 		if !ok2 {
-			s.onMFAFail(&u)
+			s.onLoginFail(&u)
 			s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 			return
 		}
+		s.finishLoginOK(&u)
 		s.issueLogin(c, &u, sec)
 		return
 	}
 
-	// 一级：密码校验
+	// 一级：密码校验（锁定状态不在此前披露，防匿名枚举/锁定探测 —— M-10）
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
-		s.onMFAFail(&u)
+		s.onLoginFail(&u)
 		s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
 		return
 	}
-	u.FailedLogins = 0
-	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
-		Update("failed_logins", 0)
+	if u.IsLocked() {
+		s.fail(c, http.StatusForbidden, 40301, "账户已被锁定，请稍后再试或联系管理员解锁")
+		return
+	}
+	// 锁定已过期（口令正确才走到这里）：复位计数，避免锁连环（M-03）
+	if u.LockedUntil != nil {
+		s.finishLoginOK(&u)
+	}
 
 	// 二级：MFA（已绑定且全局开启）
 	if sec.MFAEnabled && u.MFAEnabled {
@@ -91,51 +125,90 @@ func (s *Server) login(c *gin.Context) {
 			return
 		}
 		ok2 := false
-		if req.TotpCode != "" && validateTOTP(req.TotpCode, u.MFASecret) {
-			ok2 = true
-		} else if req.RecoveryCode != "" {
-			if used, next := consumeRecoveryCode(req.RecoveryCode, u.RecoveryCodesJSON); used {
+		if req.TotpCode != "" {
+			if step, okStep := s.verifyTOTP(&u, req.TotpCode); okStep {
 				ok2 = true
-				s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
-					Update("recovery_codes_json", next)
+				s.persistTOTPStep(u.ID, step)
 			}
+		} else if req.RecoveryCode != "" {
+			ok2 = s.consumeRecoveryCAS(&u, req.RecoveryCode)
 		}
 		if !ok2 {
-			s.onMFAFail(&u)
+			s.onLoginFail(&u)
 			s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 			return
 		}
 	}
 
+	// 完全认证成功才复位失败计数（若在 MFA 质询前复位，「对密码+错 MFA」可无限清零绕过锁定）
+	s.finishLoginOK(&u)
 	s.issueLogin(c, &u, sec)
 }
 
-// onMFAFail 连续 5 次失败锁定账户（REQ-022 ②）。
-func (s *Server) onMFAFail(u *model.AdminUser) {
-	u.FailedLogins++
-	updates := map[string]any{"failed_logins": u.FailedLogins}
-	if u.FailedLogins >= 5 {
-		loc := time.Now().Add(15 * time.Minute)
-		updates["locked_until"] = loc
+// finishLoginOK 原子清零失败计数并落登录时间（锁到期同时复位计数 —— M-03）。
+func (s *Server) finishLoginOK(u *model.AdminUser) {
+	now := time.Now()
+	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
+		Updates(map[string]any{"failed_logins": 0, "locked_until": nil, "last_login_at": &now})
+}
+
+// onLoginFail 连续 5 次失败锁定账户（REQ-022 ②）。
+// SEC-08：failed_logins 用 SQL 原子自增（并发不可绕过阈值），锁定按条件更新。
+func (s *Server) onLoginFail(u *model.AdminUser) {
+	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
+		UpdateColumn("failed_logins", gorm.Expr("failed_logins + 1"))
+	var fresh int
+	if err := s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
+		Select("failed_logins").Scan(&fresh).Error; err != nil {
+		return
 	}
-	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Updates(updates)
+	if fresh >= 5 {
+		loc := time.Now().Add(15 * time.Minute)
+		s.db.Model(&model.AdminUser{}).Where("id = ? AND (locked_until IS NULL OR locked_until < ?)", u.ID, time.Now()).
+			Update("locked_until", loc)
+	}
 }
 
 func (s *Server) issueLogin(c *gin.Context, u *model.AdminUser, sec settings.Security) {
+	// SEC-02：首启随机口令账户 —— 发仅可改密的受限会话
+	if u.MustChangePassword {
+		s.issueScoped(c, u, "pw", gin.H{"need_change_password": true})
+		return
+	}
+	// SEC-09：全员 MFA 硬性要求 —— 未绑定者只发仅可绑定的受限会话
+	if sec.MFAEnabled && sec.MFARequiredAll && !u.MFAEnabled {
+		s.issueScoped(c, u, "mfa", gin.H{"need_bind_mfa": true})
+		return
+	}
 	token, err := auth.Issue(s.secret, u.ID, u.Username)
 	if err != nil {
 		s.fail(c, http.StatusInternalServerError, 50001, "签发 Token 失败")
 		return
 	}
-	now := time.Now()
-	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Update("last_login_at", &now)
 	s.recordOp(c, "login", "auth", u.Username, nil, nil)
-	needBind := sec.MFAEnabled && sec.MFARequiredAll && !u.MFAEnabled
 	s.ok(c, gin.H{
 		"token":         token,
-		"user":          gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled, "last_login_at": now},
-		"need_bind_mfa": needBind,
+		"user":          gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled},
+		"need_bind_mfa": sec.MFAEnabled && !u.MFAEnabled, // 仅提示性（非强制）
 	})
+}
+
+// issueScoped 签发受限 scope 会话（前端据此跳转到改密/绑定引导页）。
+func (s *Server) issueScoped(c *gin.Context, u *model.AdminUser, scope string, extra gin.H) {
+	token, err := auth.IssueScoped(s.secret, u.ID, u.Username, scope)
+	if err != nil {
+		s.fail(c, http.StatusInternalServerError, 50001, "签发 Token 失败")
+		return
+	}
+	s.recordOp(c, "login", "auth", u.Username, nil, nil)
+	body := gin.H{
+		"token": token,
+		"user":  gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled},
+	}
+	for k, v := range extra {
+		body[k] = v
+	}
+	s.ok(c, body)
 }
 
 func (s *Server) me(c *gin.Context) {
@@ -146,11 +219,14 @@ func (s *Server) me(c *gin.Context) {
 		return
 	}
 	s.ok(c, gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled,
-		"created_at": u.CreatedAt, "last_login_at": u.LastLoginAt})
+		"must_change_password": u.MustChangePassword,
+		"created_at":           u.CreatedAt, "last_login_at": u.LastLoginAt})
 }
 
 func (s *Server) logout(c *gin.Context) {
-	s.recordOp(c, "login", "auth", "logout", nil, nil)
+	// SEC-13：登出即吊销该用户当前全部会话（改密后重新登录的场景不受影响）。
+	s.invalidateSessions(userIDOf(c))
+	s.recordOp(c, "logout", "auth", operatorOf(c), nil, nil)
 	s.ok(c, nil)
 }
 
@@ -163,8 +239,9 @@ func (s *Server) changePassword(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	if len(req.NewPassword) < 8 {
-		s.fail(c, http.StatusBadRequest, 40001, "新密码至少 8 位")
+	// M-09：下限 8；上限 72（bcrypt 输入界——超长口令会静默截断/此前产生空哈希）
+	if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
+		s.fail(c, http.StatusBadRequest, 40001, "新密码需为 8-72 字节")
 		return
 	}
 	uid := userIDOf(c)
@@ -177,10 +254,18 @@ func (s *Server) changePassword(c *gin.Context) {
 		s.fail(c, http.StatusUnauthorized, 40102, "原密码错误")
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Update("password_hash", string(hash))
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil { // M-09：错误必须可见（此前忽略错误可写入空哈希）
+		s.fail(c, http.StatusInternalServerError, 50001, "口令处理失败，请重试")
+		return
+	}
+	now := time.Now()
+	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Updates(map[string]any{
+		"password_hash": string(hash), "must_change_password": false,
+		"sessions_invalid_before": &now, // SEC-13：改密后旧会话全部作废
+	})
 	s.recordOp(c, "update", "auth", "password", nil, nil)
-	s.ok(c, nil)
+	s.ok(c, gin.H{"relogin_required": true})
 }
 
 // ---- 账户 MFA 自助绑定 (REQ-021) ----
@@ -242,7 +327,7 @@ func (s *Server) mfaEnable(c *gin.Context) {
 	now := time.Now()
 	s.db.Model(&model.AdminUser{}).Where("id = ?", uid).Updates(map[string]any{
 		"mfa_secret": secret, "mfa_enabled": true, "mfa_bound_at": &now,
-		"recovery_codes_json": marshalRecoveryHashed(hashed),
+		"recovery_codes_json": marshalRecoveryHashed(hashed), "last_totp_step": 0,
 	})
 	s.recordOp(c, "mfa_bind", "security", operatorOf(c), nil, nil)
 	s.ok(c, gin.H{"recovery_codes": plain})
@@ -265,11 +350,11 @@ func (s *Server) mfaDisable(c *gin.Context) {
 		return
 	}
 	ok := false
-	if validateTOTP(req.Code, u.MFASecret) {
+	if step, okStep := s.verifyTOTP(&u, req.Code); okStep {
 		ok = true
-	} else if used, next := consumeRecoveryCode(req.Code, u.RecoveryCodesJSON); used {
+		s.persistTOTPStep(u.ID, step)
+	} else if s.consumeRecoveryCAS(&u, req.Code) {
 		ok = true
-		s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Update("recovery_codes_json", next)
 	}
 	if !ok {
 		s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
@@ -277,6 +362,8 @@ func (s *Server) mfaDisable(c *gin.Context) {
 	}
 	s.db.Model(&model.AdminUser{}).Where("id = ?", uid).Updates(map[string]any{
 		"mfa_secret": "", "mfa_enabled": false, "mfa_bound_at": nil, "recovery_codes_json": ""})
+	// SEC-13：解绑自身 MFA 后旧会话作废（防止以“已开 MFA 的会话”静默降级使用）
+	s.invalidateSessions(uid)
 	s.recordOp(c, "mfa_unbind", "security", operatorOf(c), nil, nil)
 	s.ok(c, nil)
 }

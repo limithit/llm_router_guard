@@ -64,6 +64,8 @@ export interface LoginOk {
   token: string;
   user: User;
   need_bind_mfa?: boolean;
+  /** SEC-02：首启一次性口令账户，需先改密（当前 token 为受限会话，仅允许改密） */
+  need_change_password?: boolean;
 }
 
 export interface LoginMfaRequired {

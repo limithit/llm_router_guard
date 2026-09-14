@@ -6,7 +6,7 @@ package admin
 import (
 	"net/http"
 	"strconv"
-	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -29,13 +29,21 @@ type Server struct {
 	enc              *crypto.Cipher
 	secret           string
 	port             int
-	mfaStateInstance mfaStore // 内存（单节点）或 Redis（多节点），见 redis_mfa.go
+	mfaStateInstance mfaStore    // 内存（单节点）或 Redis（多节点），见 redis_mfa.go
+	loginLimiter     loginLimit  // /auth/login per-IP 限速（SEC-08/M-03）
+}
+
+// loginLimit 简单接口，便于测试替换。
+type loginLimit interface {
+	allow(ip string, now time.Time) bool
+	retryAfter(ip string, now time.Time) int
 }
 
 func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, mx *metrics.Metrics,
 	al *audit.Logger, enc *crypto.Cipher, jwtSecret string, listenPort int, redisAddr, redisPassword string) *Server {
 	return &Server{db: gdb, mgr: mgr, bl: bl, mx: mx, al: al, enc: enc,
-		secret: jwtSecret, port: listenPort, mfaStateInstance: newMFAStore(redisAddr, redisPassword)}
+		secret: jwtSecret, port: listenPort, mfaStateInstance: newMFAStore(redisAddr, redisPassword),
+		loginLimiter: newLoginLimiter()}
 }
 
 // userIDOf 从 JWT 中间件写入的 context 取当前管理员 ID。
@@ -105,12 +113,15 @@ func operatorOf(c *gin.Context) string {
 	return "anonymous"
 }
 
+// clientIP M-04：操作/登录审计的来源 IP 一律取 gin 的 ClientIP()——
+// 仅当 TRUSTED_PROXIES 显式配置才解析 X-Forwarded-For；此前手工读 header 使审计 IP 可被任意伪造。
 func clientIP(c *gin.Context) string {
-	if v := c.GetHeader("X-Forwarded-For"); v != "" {
-		if i := strings.IndexByte(v, ','); i > 0 {
-			return strings.TrimSpace(v[:i])
-		}
-		return v
-	}
 	return c.ClientIP()
+}
+
+// invalidateSessions SEC-13：把该用户全部已签发 JWT 作废（登出/改密/被解绑 MFA 时调用）。
+func (s *Server) invalidateSessions(uid uint) {
+	now := time.Now()
+	s.db.Model(&model.AdminUser{}).Where("id = ?", uid).
+		UpdateColumn("sessions_invalid_before", &now)
 }

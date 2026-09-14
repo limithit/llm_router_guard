@@ -46,7 +46,10 @@ func (s *Server) unbindUserMfa(c *gin.Context) {
 		return
 	}
 	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Updates(map[string]any{
-		"mfa_secret": "", "mfa_enabled": false, "mfa_bound_at": nil, "recovery_codes_json": ""})
+		"mfa_secret": "", "mfa_enabled": false, "mfa_bound_at": nil,
+		"recovery_codes_json": "", "last_totp_step": 0})
+	// SEC-13：被解绑者既有的全部会话立即作废（防止带 MFA 语义的旧 Token 继续通行）
+	s.invalidateSessions(u.ID)
 	s.recordOp(c, "mfa_unbind", "security", u.Username, gin.H{"mfa_enabled": true}, gin.H{"mfa_enabled": false})
 	s.ok(c, nil)
 }

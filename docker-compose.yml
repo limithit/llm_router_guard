@@ -11,13 +11,16 @@ services:
     environment:
       - PORT=8080
       - DB_TYPE=${DB_TYPE:-sqlite}
-      - DB_DSN=${DB_DSN:-gateway.db}
-      - JWT_SECRET=${JWT_SECRET:-CHANGE-ME-JWT-SECRET}
-      - MASTER_KEY=${MASTER_KEY:-CHANGE-ME-MASTER-KEY}
+      # 默认指向卷内路径（SEC-02：容器重建不丢库、管理员口令不回退）
+      - DB_DSN=${DB_DSN:-/app/data/db/gateway.db}
+      # SEC-01/02：密钥无可用默认值——未设置时 compose 直接报错拒绝拉起（fail-safe）。
+      # 生成：openssl rand -hex 32
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set (openssl rand -hex 32)}
+      - MASTER_KEY=${MASTER_KEY:?MASTER_KEY must be set (openssl rand -hex 32)}
       - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      # 不设则首启随机生成一次性管理员口令（容器日志查看一次，首登强制修改）
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - DATA_DIR=/app/data
-      # 多节点 / 反代 / 健康检查（见 .env.template；留空即单机默认行为）
       - REDIS_ADDR=${REDIS_ADDR:-}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - HEALTH_CHECK_SECONDS=${HEALTH_CHECK_SECONDS:-30}

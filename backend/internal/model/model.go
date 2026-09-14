@@ -5,6 +5,7 @@ package model
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -21,8 +22,14 @@ type AdminUser struct {
 	FailedLogins      int        `json:"-"`                  // 连续登录失败次数（含 MFA 错）
 	LockedUntil       *time.Time `json:"-"`                  // 锁定期
 	LastLoginAt       *time.Time `json:"last_login_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	// SEC-02：首启生成的随机口令登录后，必须先改密（改密前仅发 scope=pw 受限会话）。
+	MustChangePassword bool `json:"must_change_password"`
+	// SEC-13：此时刻之前签发的全部 JWT 作废（登出/改密/解绑 MFA 时置为 now）。
+	SessionsInvalidBefore *time.Time `json:"-"`
+	// M-07：已成功核销的 TOTP 时间步（单调递增，杜绝 90s 窗口内重放）。
+	LastTOTPStep int64     `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 func (u *AdminUser) IsLocked() bool {
@@ -49,13 +56,14 @@ type APIKey struct {
 }
 
 // AllowsModel 判断该 Key 是否被授权访问指定别名；空列表表示允许全部。
+// M-30：JSON 损坏时 fail-closed（拒绝全部）——此前放宽到全允许，坏记录=意外扩权。
 func (k APIKey) AllowsModel(alias string) bool {
 	if k.AllowedModelsJSON == "" {
 		return true
 	}
 	var list []string
 	if err := json.Unmarshal([]byte(k.AllowedModelsJSON), &list); err != nil {
-		return true // 解析失败：放宽到全部允许，避免配置错误锁死
+		return false
 	}
 	if len(list) == 0 {
 		return true
@@ -70,6 +78,7 @@ func (k APIKey) AllowsModel(alias string) bool {
 
 // IPAllowed 判断请求 IP 是否在白名单内；未启用 IP 白名单时一律放行。
 // 启用后，IP 不在列表内则拒绝（fail-closed）。
+// L-02：条目支持裸 IP（按 /32 或 /128 精确匹配），此前只认 CIDR、裸 IP 静默永不匹配。
 func (k APIKey) IPAllowed(ipStr string) bool {
 	if !k.IPAllowlistEnabled {
 		return true
@@ -83,7 +92,15 @@ func (k APIKey) IPAllowed(ipStr string) bool {
 		return false
 	}
 	for _, c := range cidrs {
-		if _, network, err := net.ParseCIDR(c); err == nil && network.Contains(ip) {
+		c = strings.TrimSpace(c)
+		if _, network, err := net.ParseCIDR(c); err == nil {
+			if network.Contains(ip) {
+				return true
+			}
+			continue
+		}
+		// 裸 IP：等价单机网段（v4→/32，v6→/128）
+		if single := net.ParseIP(c); single != nil && single.Equal(ip) {
 			return true
 		}
 	}

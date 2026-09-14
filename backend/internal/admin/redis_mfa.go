@@ -28,27 +28,64 @@ type mfaStore interface {
 }
 
 // ---------- 内存实现（单节点） ----------
+// M-08：带 TTL（与 Redis 实现一致的 5 分钟语义）。此前无过期：票据/待绑定密钥
+// 永存直至重启，被截获的预认证票据可无限期复用。
 
-type memMFA struct {
-	login sync.Map // token -> uint userID
-	setup sync.Map // uid -> string secret
+type mfaEntry struct {
+	value any
+	exp   time.Time
 }
 
-func (m *memMFA) SaveLoginTicket(token string, uid uint) { m.login.Store(token, uid) }
+type memMFA struct {
+	login sync.Map // token -> mfaEntry{uint userID}
+	setup sync.Map // uid   -> mfaEntry{string secret}
+}
+
+func (m *memMFA) SaveLoginTicket(token string, uid uint) {
+	m.expireStale(&m.login)
+	m.login.Store(token, mfaEntry{uid, time.Now().Add(mfaTicketTTL)})
+}
 func (m *memMFA) PopLoginTicket(token string) (uint, bool) {
 	v, ok := m.login.LoadAndDelete(token)
 	if !ok {
 		return 0, false
 	}
-	return v.(uint), true
+	e := v.(mfaEntry)
+	if time.Now().After(e.exp) {
+		return 0, false
+	}
+	return e.value.(uint), true
 }
-func (m *memMFA) SaveSetupSecret(uid uint, secret string) { m.setup.Store(uid, secret) }
+func (m *memMFA) SaveSetupSecret(uid uint, secret string) {
+	m.expireStale(&m.setup)
+	m.setup.Store(uid, mfaEntry{secret, time.Now().Add(mfaTicketTTL)})
+}
 func (m *memMFA) PopSetupSecret(uid uint) (string, bool) {
 	v, ok := m.setup.LoadAndDelete(uid)
 	if !ok {
 		return "", false
 	}
-	return v.(string), true
+	e := v.(mfaEntry)
+	if time.Now().After(e.exp) {
+		return "", false
+	}
+	return e.value.(string), true
+}
+
+// expireStale 惰性清扫：条目超过 1024 时删过期项（票据场景量小，够用且无后台协程）。
+func (m *memMFA) expireStale(mp *sync.Map) {
+	n := 0
+	mp.Range(func(_, _ any) bool { n++; return n < 1025 })
+	if n < 1024 {
+		return
+	}
+	now := time.Now()
+	mp.Range(func(k, v any) bool {
+		if e, ok := v.(mfaEntry); ok && now.After(e.exp) {
+			mp.Delete(k)
+		}
+		return true
+	})
 }
 
 // ---------- Redis 实现（多节点） ----------
