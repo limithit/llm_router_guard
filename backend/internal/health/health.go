@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"llmrouter/internal/crypto"
+	"llmrouter/internal/httpclient"
 	"llmrouter/internal/model"
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
@@ -33,9 +34,10 @@ type Checker struct {
 }
 
 // New 构造健康检查器。db 用于读取供应商列表与故障转移配置。
+// M-01：经 httpclient 工厂（拒绝重定向，供应商 Key 不随 302 外泄）。
 func New(db *gorm.DB, enc *crypto.Cipher, bl *slb.Balancer) *Checker {
 	return &Checker{db: db, enc: enc, bl: bl,
-		client: &http.Client{Timeout: 10 * time.Second}}
+		client: httpclient.New(10 * time.Second)}
 }
 
 // Run 健康检查循环；interval<=0 视为禁用（直接返回）。

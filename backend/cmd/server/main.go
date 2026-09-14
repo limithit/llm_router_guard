@@ -113,7 +113,9 @@ func main() {
 	engine.Use(func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		path := c.Request.URL.Path
+		// M-29：URL.Path 已百分号解码——路径里的 %0a/%0d 会还原成真实换行伪造日志行。
+		// 记录保持编码形态的 EscapedPath（可逆、无控制字符注入面）。
+		path := c.Request.URL.EscapedPath()
 		if strings.HasPrefix(path, "/assets/") {
 			return
 		}

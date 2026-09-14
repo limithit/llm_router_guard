@@ -109,12 +109,17 @@ func (s *Server) batchKeywords(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
+	// M-25：批量条目上限（replace 模式先清空词表再灌入 —— 无上限即无界内存 + 拖库放大）
+	if len(req.Items) > maxBatchItems {
+		s.fail(c, http.StatusBadRequest, 40001, fmt.Sprintf("单次批量上限 %d 条", maxBatchItems))
+		return
+	}
 	if req.Mode == "replace" {
 		s.db.Where("1 = 1").Delete(&model.GuardKeyword{})
 	}
 	var created int
 	for _, it := range req.Items {
-		if it.Word == "" {
+		if it.Word == "" || len(it.Word) > maxWordLen {
 			continue
 		}
 		it.ID = 0
@@ -127,6 +132,26 @@ func (s *Server) batchKeywords(c *gin.Context) {
 	s.ok(c, gin.H{"created": created, "skipped": len(req.Items) - created})
 }
 
+// 导入/批量上限（M-24/M-25）：护栏词表是运营数据，单次规模封顶防内存/DB 放大。
+const (
+	maxImportCSVLen = 2 << 20 // 2 MiB 文本
+	maxBatchItems   = 5000    // 单次批量条数
+	maxWordLen      = 512     // 单条词/模式字节上限
+)
+
+// csvCell L-03：CSV 公式注入防护——以 = + - @ 或制表符开头的单元格加单引号前缀，
+// 防止管理员导出的词表/日志在 Excel 中被当作 DDE/公式执行。
+func csvCell(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + v
+	}
+	return v
+}
+
 // exportKeywords CSV 导出（text/csv，不走 envelope）。
 func (s *Server) exportKeywords(c *gin.Context) {
 	var rows []model.GuardKeyword
@@ -135,7 +160,7 @@ func (s *Server) exportKeywords(c *gin.Context) {
 	w := csv.NewWriter(&sb)
 	w.Write([]string{"word", "category", "match_mode", "action", "enabled"})
 	for _, r := range rows {
-		w.Write([]string{r.Word, r.Category, r.MatchMode, r.Action, strconv.FormatBool(r.Enabled)})
+		w.Write([]string{csvCell(r.Word), csvCell(r.Category), r.MatchMode, r.Action, strconv.FormatBool(r.Enabled)})
 	}
 	w.Flush()
 	c.Header("Content-Disposition", "attachment; filename=keywords.csv")
@@ -151,11 +176,20 @@ func (s *Server) importKeywords(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请粘贴 CSV 内容")
 		return
 	}
+	// M-24：导入文本体量封顶（大 CSV 全量驻留内存 + 逐行建记录放大）
+	if len(req.CSV) > maxImportCSVLen {
+		s.fail(c, http.StatusBadRequest, 40001, fmt.Sprintf("CSV 过大（上限 %d 字节）", maxImportCSVLen))
+		return
+	}
 	r := csv.NewReader(strings.NewReader(strings.TrimPrefix(req.CSV, "\uFEFF")))
 	r.FieldsPerRecord = -1
 	records, err := r.ReadAll()
 	if err != nil {
 		s.fail(c, http.StatusBadRequest, 40001, "CSV 解析失败: "+err.Error())
+		return
+	}
+	if len(records) > maxBatchItems { // M-24：行数封顶
+		s.fail(c, http.StatusBadRequest, 40001, fmt.Sprintf("CSV 行数过多（上限 %d 行）", maxBatchItems))
 		return
 	}
 	var created, skipped int
@@ -164,6 +198,10 @@ func (s *Server) importKeywords(c *gin.Context) {
 			continue
 		}
 		word := strings.TrimSpace(rec[0])
+		if len(word) > maxWordLen { // M-24：单词长度封顶
+			skipped++
+			continue
+		}
 		cat, mode, act := "custom", "contains", "block"
 		en := true
 		if len(rec) > 1 && strings.TrimSpace(rec[1]) != "" {

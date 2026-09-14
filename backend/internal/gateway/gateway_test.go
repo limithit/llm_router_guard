@@ -150,7 +150,8 @@ func TestForwardStream_ShortOutputClean_NoFalsePositive(t *testing.T) {
 	}
 }
 
-// TestResolveRequestID 链路 ID 策略：合法入站头透传复用，缺失/超长则生成。
+// TestResolveRequestID SEC-04 策略：主 ID 恒为服务端 32-hex 新生成；
+// 客户端头只作为清洗后的 client_request_id 留存（不复活为可注入/可撞唯一键的主 ID）。
 func TestResolveRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mk := func(h string) *gin.Context {
@@ -161,22 +162,29 @@ func TestResolveRequestID(t *testing.T) {
 		}
 		return c
 	}
-	if got := resolveRequestID(mk("trace-abc-123")); got != "trace-abc-123" {
-		t.Errorf("inbound ID must be reused, got %q", got)
+	sid, cid := resolveRequestID(mk("trace-abc-123"))
+	if len(sid) != 32 {
+		t.Errorf("server ID must always be freshly generated 32-hex, got %q", sid)
 	}
-	got := resolveRequestID(mk(""))
-	if len(got) != 32 { // 16 字节 hex
-		t.Errorf("missing header should generate 32-hex ID, got %q", got)
+	if cid != "trace-abc-123" {
+		t.Errorf("client ID should be kept verbatim (sanitized), got %q", cid)
 	}
-	if got2 := resolveRequestID(mk("")); got2 == got {
-		t.Error("two generated IDs must differ")
+	if sid2, _ := resolveRequestID(mk("trace-abc-123")); sid2 == sid {
+		t.Error("two generated server IDs must differ")
 	}
-	long := strings.Repeat("x", 129)
-	if got = resolveRequestID(mk(long)); got == long || len(got) != 32 {
-		t.Errorf("over-length header (>128B) must be ignored, got %q", got)
+	// 换行/控制字符注入 → 替换为空格（防日志伪造）
+	_, cid = resolveRequestID(mk("x\r\n[access] 200 FAKE"))
+	if strings.ContainsAny(cid, "\r\n") {
+		t.Errorf("control chars must be neutralized, got %q", cid)
 	}
-	if got = resolveRequestID(mk("   ")); len(got) != 32 {
-		t.Errorf("blank header should generate, got %q", got)
+	// 超长截断到 128 字节
+	long := strings.Repeat("x", 200)
+	_, cid = resolveRequestID(mk(long))
+	if len(cid) != 128 {
+		t.Errorf("client ID must truncate to 128, got %d", len(cid))
+	}
+	if _, cid = resolveRequestID(mk("   ")); cid != "" {
+		t.Errorf("blank header should yield empty client ID, got %q", cid)
 	}
 }
 

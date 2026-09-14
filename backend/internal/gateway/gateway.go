@@ -7,12 +7,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	mr "math/rand"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,7 @@ import (
 	"llmrouter/internal/audit"
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/guard"
+	"llmrouter/internal/httpclient"
 	"llmrouter/internal/metrics"
 	"llmrouter/internal/model"
 	"llmrouter/internal/quota"
@@ -55,9 +58,10 @@ func New(gdb *gorm.DB, mgr *runtime.Manager, bl *slb.Balancer, rl rateLimitAllow
 	qm *quota.QuotaManager, al *audit.Logger, mx *metrics.Metrics) *Server {
 	return &Server{
 		db: gdb, mgr: mgr, bl: bl, rl: rl, qm: qm, auditLog: al, mx: mx,
-		httpClient: &http.Client{Transport: &http.Transport{
+		// M-01：统一经 httpclient 工厂——拒绝一切 3xx 跟随（x-api-key 不随重定向外泄）
+		httpClient: httpclient.NewTransported(0, &http.Transport{
 			MaxIdleConns: 200, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second,
-		}},
+		}),
 	}
 }
 
@@ -78,13 +82,33 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// resolveRequestID 链路追踪 ID：客户端带合法 X-Request-ID（≤128 字节）则透传复用
-// （跨服务同一 ID 贯穿），否则生成。响应头回带同值，转发上游时也携带。
-func resolveRequestID(c *gin.Context) string {
-	if v := strings.TrimSpace(c.GetHeader("X-Request-ID")); v != "" && len(v) <= 128 {
-		return v
+// sanitizeClientID 清洗客户端自带的追踪头：去控制字符（防日志注入/换行伪造）、限长 128。
+func sanitizeClientID(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
 	}
-	return newRequestID()
+	if len(v) > 128 {
+		v = v[:128]
+	}
+	var b strings.Builder
+	b.Grow(len(v))
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			b.WriteRune(' ')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// resolveRequestID 链路追踪 ID（SEC-04 加固）：request_id 恒为服务端新生成——
+// 客户端值不再复用为主 ID（call_logs.request_id 是 uniqueIndex：旧行为允许攻击者
+// 用固定头顶掉/撞死他人审计，长头撑爆索引，甚至借唯一冲突触发批量落库失败）。
+// 客户端值经清洗后单独入库（client_request_id），响应与上游转发都回带服务端 ID。
+func resolveRequestID(c *gin.Context) (serverID, clientID string) {
+	return newRequestID(), sanitizeClientID(c.GetHeader("X-Request-ID"))
 }
 
 // clientError 按客户端协议风格写错误响应。
@@ -269,7 +293,8 @@ func shouldAuditCall(g settings.General, status string) bool {
 // writeLog 组装并异步入库调用审计（REQ-015）。
 func (s *Server) writeLog(p auditParams) {
 	cl := &model.CallLog{
-		RequestID: p.requestID, CreatedAt: p.start, APIKeyID: p.keyID, APIKeyLabel: p.keyLabel,
+		RequestID: p.requestID, ClientRequestID: p.clientReqID,
+		CreatedAt: p.start, APIKeyID: p.keyID, APIKeyLabel: p.keyLabel,
 		Protocol: p.proto, ModelAlias: p.alias, UpstreamProvider: p.upstreamProvider,
 		UpstreamModel: p.upstreamModel, InputText: p.input, OutputText: p.output,
 		PromptTokens: p.promptTokens, CompletionTokens: p.completionTokens,
@@ -282,6 +307,8 @@ func (s *Server) writeLog(p auditParams) {
 
 type auditParams struct {
 	requestID                                  string
+	clientReqID                                string
+	res                                        *quota.Reservation
 	start                                      time.Time
 	keyID                                      uint
 	keyLabel                                   string
@@ -294,6 +321,14 @@ type auditParams struct {
 	finishReason                               string
 }
 
+// settleQuota 出口结算（SEC-07）：按预扣回执与实际用量之差回补/退还（幂等）。
+func (s *Server) settleQuota(ap *auditParams, actualTokens int64) {
+	if ap.res == nil {
+		return
+	}
+	s.qm.Settle(ap.res, actualTokens)
+}
+
 // Handle 返回一个协议端点的 gin 处理器。
 func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -303,15 +338,18 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		snap := s.mgr.Get()
 		apiKey := c.MustGet("apikey").(*model.APIKey)
 		s.touchLastUsed(apiKey.ID)
-		reqID := resolveRequestID(c)
+		reqID, clientID := resolveRequestID(c)
 		// 响应回带：客户端收到响应后可凭此 ID 在审计（request_id 列）中定位本次调用
 		c.Header("X-Request-ID", reqID)
 
 		ap := auditParams{
-			requestID: reqID, start: start, keyID: apiKey.ID, keyLabel: apiKey.Name,
+			requestID: reqID, clientReqID: clientID, start: start,
+			keyID: apiKey.ID, keyLabel: apiKey.Name,
 			proto: clientProto, status: "error",
 		}
 		defer func() {
+			// 兜底：任何提前返回（含 panic 恢复）后未结算的预扣全额退还（SEC-07）
+			s.qm.Release(ap.res)
 			if shouldAuditCall(snap.General, ap.status) {
 				s.writeLog(ap)
 			}
@@ -319,8 +357,16 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		}()
 
 		// 1. 解析协议体 → 规范模型
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, 16<<20))
+		// L-01：超限请求以 413 显式拒绝（旧 LimitReader 静默截断 → 伪 400 且可能按截断体计费）
+		body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 16<<20))
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				ap.errMsg = "request body too large"
+				clientError(c, clientProto, http.StatusRequestEntityTooLarge,
+					"request body too large (limit 16 MiB)", "invalid_request_error", "request_too_large")
+				return
+			}
 			ap.errMsg = "read request body: " + err.Error()
 			clientError(c, clientProto, http.StatusBadRequest, ap.errMsg, "invalid_request_error", "bad_body")
 			return
@@ -368,31 +414,19 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 			}
 		}
 		if !apiKey.AllowsModel(cr.Model) {
+			// M-12：与"未知模型"同构响应——不向未授权 Key 证实别名存在性
 			ap.errMsg = "model not allowed for api key"
-			clientError(c, clientProto, http.StatusForbidden,
-				fmt.Sprintf("model %q is not allowed for this api key", cr.Model),
-				"forbidden", "model_not_allowed")
+			clientError(c, clientProto, http.StatusNotFound,
+				fmt.Sprintf("unknown model %q: not a configured alias and no upstream serves this model name", cr.Model),
+				"invalid_request_error", "model_not_found")
 			return
 		}
 
-		// 2. 护栏输入检测（逐条消息，PII 就地脱敏）
+		// 2. 护栏输入检测（SEC-10：全字段覆盖——消息内容 + 工具调用 name/args + 工具定义 + 工具结果名）
 		var allFindings []guard.Finding
 		blockedReason, blockedCategory := "", ""
 		if snap.General.GuardEnabled {
-			for i := range cr.Messages {
-				vd := guard.CheckInput(snap, cr.Messages[i].Content)
-				allFindings = append(allFindings, vd.Findings...)
-				cr.Messages[i].Content = vd.Text
-				if vd.Blocked && blockedReason == "" {
-					blockedReason = vd.BlockReason
-					for _, f := range vd.Findings {
-						if f.Action == "block" {
-							blockedCategory = f.Category
-							break
-						}
-					}
-				}
-			}
+			allFindings, blockedReason, blockedCategory = guardCanonicalInput(snap, cr)
 		}
 		ap.findings = guard.FindingsJSON(allFindings)
 		ap.input = guard.MaskForLog(snap, cr.InputPlainText())
@@ -400,40 +434,51 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 			ap.status = "blocked"
 			ap.category = blockedCategory
 			ap.reason = blockedReason
+			// M-13：对客不回显命中词/规则名（过滤预言机），完整原因仅入审计
 			clientError(c, clientProto, http.StatusBadRequest,
-				"request blocked by content policy: "+blockedReason,
+				"request blocked by content policy",
 				"content_policy_violation", "content_filtered")
 			return
 		}
 
-		// 3. 速率限制
+		// 3. 速率限制（L-11：对外通用文案 + Retry-After，规则细节仅入审计）
 		if ok2, hit := s.rl.Allow(snap, apiKey.ID, ap.alias); !ok2 {
 			ap.status = "rate_limited"
 			ap.reason = fmt.Sprintf("rate limit rule#%d: %d reqs/%ds", hit.ID, hit.MaxRequests, hit.WindowSeconds)
+			c.Header("Retry-After", strconv.Itoa(max1(hit.WindowSeconds)))
 			clientError(c, clientProto, http.StatusTooManyRequests,
-				ap.reason, "rate_limit_error", "rate_limit_exceeded")
+				"rate limit exceeded", "rate_limit_error", "rate_limit_exceeded")
 			return
 		}
 
-		// 4. 配额（超限可降级到其他别名）
-		if ok3, over := s.qm.Check(snap, apiKey.ID, ap.alias); !ok3 {
+		// 4. 配额：原子预扣（SEC-07 关闭 Check→Consume 竞态），超限可降级（M-31：目标别名复核授权）
+		promptEst := int64(tokens.Count(cr.InputPlainText()))
+		compEst := int64(2048) // 未声明 max_tokens 时的保守预估（事后 Settle 按实际回补）
+		if cr.MaxTokens > 0 && int64(cr.MaxTokens) < compEst {
+			compEst = int64(cr.MaxTokens)
+		}
+		est := promptEst + compEst
+		res, over := s.qm.Reserve(snap, apiKey.ID, ap.alias, est)
+		if over != nil {
 			degraded := false
 			if over.OverAction == "degrade" && over.DegradeAlias != "" {
-				if ups2, ok4 := snap.Aliases[over.DegradeAlias]; ok4 {
-					ups = ups2
-					ap.alias = over.DegradeAlias
-					degraded = true
+				if ups2, ok4 := snap.Aliases[over.DegradeAlias]; ok4 && apiKey.AllowsModel(over.DegradeAlias) {
+					if res2, over2 := s.qm.Reserve(snap, apiKey.ID, over.DegradeAlias, est); over2 == nil {
+						ups, ap.alias, ap.res = ups2, over.DegradeAlias, res2
+						degraded = true
+					}
 				}
 			}
 			if !degraded {
 				ap.status = "quota_exceeded"
-				ap.reason = fmt.Sprintf("quota#%d (%s/%s) 已达上限 %d/%d",
-					over.QuotaID, over.Kind, "current", over.Used, over.Limit)
+				ap.reason = fmt.Sprintf("quota#%d (%s) %d/%d", over.QuotaID, over.Kind, over.Used, over.Limit)
+				c.Header("Retry-After", "3600")
 				clientError(c, clientProto, http.StatusTooManyRequests,
-					fmt.Sprintf("quota exceeded (%s): %d of %d used", over.Kind, over.Used, over.Limit),
-					"rate_limit_error", "quota_exceeded")
+					"quota exceeded", "rate_limit_error", "quota_exceeded")
 				return
 			}
+		} else {
+			ap.res = res
 		}
 
 		// 5. SLB + 故障转移转发
@@ -538,6 +583,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		}
 		ap.errMsg = msg
 		ap.status = "error"
+		s.settleQuota(ap, 0) // 上游已受理（保留请求计数）；token 无产出 → 退还预扣（SEC-07）
 		clientError(c, clientProto, resp.StatusCode,
 			fmt.Sprintf("upstream returned %d: %s", resp.StatusCode, msg),
 			"upstream_error", "upstream_error")
@@ -567,7 +613,7 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 		return frRetry
 	}
 
-	// 输出护栏
+	// 输出护栏（内容）
 	if snap.General.GuardEnabled && snap.Output.Enabled {
 		vd := guard.CheckOutput(snap, cr.Content)
 		if len(vd.Findings) > 0 {
@@ -579,14 +625,44 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 				ap.status = "blocked"
 				ap.category = "output"
 				ap.reason = vd.BlockReason
+				s.settleQuota(ap, 0) // 上游已消耗：保留请求计数，退还 token 预扣
 				clientError(c, clientProto, http.StatusBadRequest,
-					"response blocked by content policy: "+vd.BlockReason,
+					"response blocked by content policy", // M-13：不向客户端回显命中词
 					"content_policy_violation", "content_filtered")
 				return frFatal
 			}
 			cr.Content = final
 		} else {
 			cr.Content = vd.Text
+		}
+		// 输出护栏（工具调用，SEC-10）：name/arguments 同样过滤；被拦截的工具调用
+		// 无法安全保留——replace/log 策略下统一剥离 tool_calls（宁可功能降级不放行注入）。
+		if len(cr.ToolCalls) > 0 {
+			tv := guard.CheckOutput(snap, mergeToolText(cr.ToolCalls))
+			ap.findings = appendFindings(ap.findings, tv.Findings)
+			if tv.Blocked {
+				final, blocked := guard.ApplyOutputStrategy(snap, tv)
+				ap.category = "output"
+				ap.reason = tv.BlockReason
+				if blocked {
+					ap.status = "blocked"
+					s.settleQuota(ap, 0)
+					clientError(c, clientProto, http.StatusBadRequest,
+						"response blocked by content policy",
+						"content_policy_violation", "content_filtered")
+					return frFatal
+				}
+				ap.status = "blocked"
+				cr.ToolCalls = nil
+				if cr.Content == "" {
+					cr.Content = final
+				}
+			} else {
+				for i := range cr.ToolCalls {
+					outArgs, _ := guardJSONLikeWith(snap, cr.ToolCalls[i].Arguments, guard.CheckOutput)
+					cr.ToolCalls[i].Arguments = outArgs
+				}
+			}
 		}
 	}
 
@@ -595,14 +671,11 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
 	if len(cr.ToolCalls) > 0 {
-		var tb strings.Builder
-		for _, tc := range cr.ToolCalls {
-			fmt.Fprintf(&tb, `<tool_call>{"name":%q,"arguments":%s}</tool_call> `, tc.Name, tc.Arguments)
-		}
-		usage.Completion += tb.Len() / 4 // 工具参数 token 粗估并入配额
+		toolText := mergeToolText(cr.ToolCalls)
+		usage.Completion += len(toolText) / 4 // 工具参数 token 粗估并入配额
 		cr.Usage = usage
 		ap.completionTokens = usage.Completion
-		ap.output = guard.MaskForLog(snap, cr.Content+" "+tb.String())
+		ap.output = guard.MaskForLog(snap, cr.Content+" "+toolText)
 	} else {
 		ap.output = guard.MaskForLog(snap, cr.Content)
 	}
@@ -611,7 +684,7 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	out := adapter.BuildCompletionJSON(clientProto, cr)
 	c.Data(http.StatusOK, "application/json", out)
 	s.bl.RecordSuccess(up.ProviderID)
-	s.qm.Consume(snap, ap.keyID, ap.alias, usage.Prompt, usage.Completion)
+	s.settleQuota(ap, int64(usage.Prompt+usage.Completion))
 	return frDone
 }
 
@@ -663,6 +736,8 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			ap.status = "error"
 			s.mx.RecordError(reqID, chunk.Err)
 			log.Printf("[stream] %s %s upstream error event: %s", up.ProviderName, up.UpstreamModel, chunk.Err)
+			// SEC-07：流中途失败也要按已产生用量结算（此前完全不计，反复制造失败流可免费消耗上游）
+			s.settleQuota(ap, int64(usage.Prompt)+int64(tokens.Count(acc.String())))
 			return frFatal
 		}
 		if chunk.Usage != nil {
@@ -720,9 +795,12 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		// 结束原因观测：正常 EOF 静默、真实错误也常被上层当"正常结束"，先在此显式留痕，
 		// 否则"上游提前断开 / 客户端断开 / 护栏拦截"三种截断在日志里无法区分。
 		log.Printf("[stream] %s %s finished early: read error=%v (accumulated %d bytes)", up.ProviderName, up.UpstreamModel, err, acc.Len())
-		_ = sw.Fail("upstream stream interrupted: " + err.Error())
+		if ferr := sw.Fail("upstream stream interrupted"); ferr != nil { // L-07：不再泄漏内部 err 文本
+			log.Printf("[stream] fail-frame write error: %v", ferr)
+		}
 		ap.errMsg = err.Error()
 		ap.status = "error"
+		s.settleQuota(ap, int64(usage.Prompt)+int64(tokens.Count(acc.String()))) // SEC-07：截断流按已产生量结算
 		return frFatal
 	}
 	if !sawFinish {
@@ -738,10 +816,12 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			idxs = append(idxs, i)
 		}
 		sort.Ints(idxs)
+		merged := make([]adapter.CanonicalToolCall, 0, len(idxs))
 		for _, i := range idxs {
 			tc := toolCalls[i]
-			fmt.Fprintf(&acc, `<tool_call>{"name":%q,"arguments":%s}</tool_call>`, tc.name, tc.args.String())
+			merged = append(merged, adapter.CanonicalToolCall{ID: tc.id, Name: tc.name, Arguments: tc.args.String()})
 		}
+		acc.WriteString(mergeToolText(merged))
 	}
 
 	// 流结束兜底检测：短输出（不足阈值）或最后一个未达阈值的尾部此前未被检测，
@@ -762,11 +842,12 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		ap.status = "ok"
 	}
 	log.Printf("[stream] %s %s done: finish_reason=%s content_bytes=%d deltas_logged=%v", up.ProviderName, up.UpstreamModel, finishReason, acc.Len(), sawFinish)
-	_ = sw.Finalize(usage, finishReason)
-	s.bl.RecordSuccess(up.ProviderID)
-	if ap.status == "ok" || ap.status == "blocked" {
-		s.qm.Consume(snap, ap.keyID, ap.alias, usage.Prompt, usage.Completion)
+	if ferr := sw.Finalize(usage, finishReason); ferr != nil { // L-09：写失败必须留痕
+		log.Printf("[stream] finalize write error: %v", ferr)
 	}
+	s.bl.RecordSuccess(up.ProviderID)
+	// SEC-07：无论 ok/blocked/error 都结算（blocked 也已消耗上游）
+	s.settleQuota(ap, int64(usage.Prompt+usage.Completion))
 	return frDone
 }
 
@@ -785,7 +866,8 @@ func (s *Server) runStreamGuardCheck(snap *runtime.Snapshot, sw *adapter.SSEWrit
 	ap.reason = vd.BlockReason
 	switch snap.Output.ViolationStrategy {
 	case "block":
-		_ = sw.Fail("output blocked by content policy: " + vd.BlockReason)
+		// M-13：流内错误事件同样不回显命中原因（细节仅入审计 ap.reason）
+		_ = sw.Fail("output blocked by content policy")
 		ap.status = "blocked"
 		s.mx.RecordError(reqID, vd.BlockReason)
 		return true, true
@@ -823,6 +905,14 @@ func containsInt(list []int, v int) bool {
 		}
 	}
 	return false
+}
+
+// max1 窗口秒数下限保护（配错 0/负数时按 1s 出 Retry-After）。
+func max1(v int) int {
+	if v < 1 {
+		return 1
+	}
+	return v
 }
 
 func appendFindings(existing string, fs []guard.Finding) string {

@@ -41,7 +41,10 @@ func (l *Logger) Write(cl *model.CallLog) {
 	select {
 	case l.ch <- cl:
 	default:
-		l.db.Create(cl)
+		// M-21：队列满同步兜底 —— 失败必须可见（此前静默丢审计）
+		if err := l.db.Create(cl).Error; err != nil {
+			log.Printf("[audit] sync fallback insert failed req=%s: %v", cl.RequestID, err)
+		}
 	}
 	l.broadcastLive(cl)
 }
@@ -65,7 +68,22 @@ func (l *Logger) writerLoop(ctx context.Context) {
 			return
 		}
 		if err := l.db.CreateInBatches(batch, 50).Error; err != nil {
-			log.Printf("[audit] batch insert failed: %v", err)
+			// SEC-04（批删防御）：一批失败不再整批丢弃——逐条重插，只丢真正冲突/坏行并留痕
+			log.Printf("[audit] batch insert failed (%d rows), retrying per-row: %v", len(batch), err)
+			var dropped int
+			for _, cl := range batch {
+				if err := l.db.Create(cl).Error; err != nil {
+					dropped++
+					if dropped <= 5 { // 只限量留痕，杜绝错误风暴
+						// 行自带 request_id 恒为服务端 hex（SEC-04）；client 值可能恶意，
+						// 日志只引用内部 ID 防注入。
+						log.Printf("[audit] row lost req=%s key=%d: %v", cl.RequestID, cl.APIKeyID, err)
+					}
+				}
+			}
+			if dropped > 5 {
+				log.Printf("[audit] ... and %d more rows dropped this batch", dropped-5)
+			}
 		}
 		batch = batch[:0]
 	}

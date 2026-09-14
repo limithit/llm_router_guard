@@ -69,9 +69,11 @@ func CheckInput(snap *runtime.Snapshot, text string) (vd Verdict) {
 		}
 	}()
 
+	lower := strings.ToLower(text) // M-26：整段文本只小写一次（旧实现每条规则各扫一遍全文）
+
 	// 敏感词
 	for _, kw := range snap.Keywords {
-		if !matchKeyword(kw, text) {
+		if !matchKeyword(kw, text, lower) {
 			continue
 		}
 		f := Finding{Type: "keyword", Value: display(kw.Raw.Word), Category: "keyword." + kw.Raw.Category, Action: kw.Raw.Action}
@@ -107,7 +109,7 @@ func CheckInput(snap *runtime.Snapshot, text string) (vd Verdict) {
 
 	// 注入规则
 	for _, inj := range snap.Injection {
-		if !matchInjection(inj, text) {
+		if !matchInjection(inj, text, lower) {
 			continue
 		}
 		vd.Findings = append(vd.Findings, Finding{Type: "injection", Value: inj.Raw.Name,
@@ -133,12 +135,14 @@ func CheckOutput(snap *runtime.Snapshot, text string) (vd Verdict) {
 		}
 	}()
 
+	lower := strings.ToLower(text) // M-26：单次小写
 	for _, kw := range snap.Keywords {
-		if matchKeyword(kw, text) && kw.Raw.Action == "block" {
+		if matchKeyword(kw, text, lower) && kw.Raw.Action == "block" {
 			vd.Blocked = true
 			vd.BlockReason = fmt.Sprintf("输出命中敏感词策略 [%s]", display(kw.Raw.Word))
 			vd.Findings = append(vd.Findings, Finding{Type: "keyword", Value: display(kw.Raw.Word),
 				Category: "output.keyword." + kw.Raw.Category, Action: "block"})
+			break // 拦截原因取首条命中即可，无需扫完全部词表
 		}
 	}
 	for _, r := range snap.PIIRules {
@@ -194,22 +198,23 @@ func MaskForLog(snap *runtime.Snapshot, text string) string {
 
 // ---- 匹配原语 ----
 
-func matchKeyword(kw runtime.CompiledKeyword, text string) bool {
+// matchKeyword lower 为 text 的单次小写结果（M-26），contains 模式复用。
+func matchKeyword(kw runtime.CompiledKeyword, text, lower string) bool {
 	switch kw.Raw.MatchMode {
 	case "regex":
 		return kw.Re != nil && kw.Re.MatchString(text)
 	case "exact":
 		return strings.EqualFold(strings.TrimSpace(text), strings.TrimSpace(kw.Raw.Word))
 	default: // contains
-		return strings.Contains(strings.ToLower(text), strings.ToLower(kw.Raw.Word))
+		return strings.Contains(lower, strings.ToLower(kw.Raw.Word))
 	}
 }
 
-func matchInjection(inj runtime.CompiledInjection, text string) bool {
+func matchInjection(inj runtime.CompiledInjection, text, lower string) bool {
 	if inj.Re != nil {
 		return inj.Re.MatchString(text)
 	}
-	return strings.Contains(strings.ToLower(text), strings.ToLower(inj.Raw.Pattern))
+	return strings.Contains(lower, strings.ToLower(inj.Raw.Pattern))
 }
 
 func display(word string) string {

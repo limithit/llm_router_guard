@@ -425,16 +425,33 @@ func extractContentText(raw json.RawMessage) string {
 	return ""
 }
 
-// InputPlainText 汇总所有非 system 消息文本，供护栏检测。
+// InputPlainText 汇总所有将转发上游的请求文本，供护栏审计/日志脱敏/token 估算。
+// SEC-10 补盲：工具调用（name/arguments）、工具结果关联名、工具定义（name/description/
+// parameters）全部并入——此前只有消息 Content 可见，工具链路成为审计与计费的盲区。
 func (cr *CanonicalRequest) InputPlainText() string {
 	var sb strings.Builder
 	for _, m := range cr.Messages {
-		if m.Content == "" {
-			continue
+		if m.Content != "" {
+			sb.WriteString(m.Role)
+			sb.WriteString(": ")
+			sb.WriteString(m.Content)
+			sb.WriteString("\n")
 		}
-		sb.WriteString(m.Role)
-		sb.WriteString(": ")
-		sb.WriteString(m.Content)
+		for _, tc := range m.ToolCalls {
+			sb.WriteString("tool_call: ")
+			sb.WriteString(tc.Name)
+			sb.WriteString(" ")
+			sb.WriteString(tc.Arguments)
+			sb.WriteString("\n")
+		}
+	}
+	for _, t := range cr.Tools {
+		sb.WriteString("tool_def: ")
+		sb.WriteString(t.Name)
+		sb.WriteString(" ")
+		sb.WriteString(t.Description)
+		sb.WriteString(" ")
+		sb.Write(t.Parameters)
 		sb.WriteString("\n")
 	}
 	return sb.String()

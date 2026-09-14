@@ -14,6 +14,7 @@ import (
 
 	"llmrouter/internal/adapter"
 	"llmrouter/internal/crypto"
+	"llmrouter/internal/httpclient"
 	"llmrouter/internal/model"
 )
 
@@ -181,7 +182,7 @@ func (s *Server) testProvider(c *gin.Context) {
 	}
 
 	start := time.Now()
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second) // M-01：拒绝重定向（x-api-key 不外泄）
 	resp, err := client.Do(req)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
@@ -229,7 +230,7 @@ func probeAnthropicMessages(base, key string) (bool, string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", key)
 	req.Header.Set("anthropic-version", "2023-06-01")
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15 * time.Second) // M-01
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, "连接失败: " + err.Error()

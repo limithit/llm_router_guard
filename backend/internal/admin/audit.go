@@ -71,6 +71,7 @@ func (s *Server) callLogDetail(c *gin.Context) {
 	}
 	s.ok(c, gin.H{
 		"request_id":        r.RequestID,
+		"client_request_id": r.ClientRequestID,
 		"created_at":        r.CreatedAt,
 		"api_key_label":     r.APIKeyLabel,
 		"protocol":          r.Protocol,

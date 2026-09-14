@@ -14,6 +14,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"llmrouter/internal/httpclient"
 	"llmrouter/internal/model"
 	"llmrouter/internal/runtime"
 	"llmrouter/internal/settings"
@@ -178,8 +179,114 @@ func (qm *QuotaManager) Check(snap *runtime.Snapshot, apiKeyID uint, alias strin
 	return true, nil
 }
 
+// ---------- 预扣-结算（SEC-07：封死 Check→Consume 竞态窗口） ----------
+// 旧模型：转发前只读 Check、转发后无条件 Consume —— 并发请求全部通过 Check 后
+// 集体超发，限额形同虚设；且失败流不计量。新模型：
+//   Reserve：转发前对每条命中配额做「条件原子自增」（used+est<=limit 才成功），
+//            任一失败回滚本批预扣并返回超限（可触发降级重试）；
+//   Settle ：完成后按实际用量与预估之差回补/退还（requests 恒保留 1）；
+//   Release：全链路失败（上游不可达）时全额退还。
+// 残余超发被压缩到「单请求预估值」量级；跨进程多实例场景仍可能各自预扣
+// （sqlite 单写锁下窗口极小），生产多节点建议共享 DB/Redis。
+
+type reservedItem struct {
+	quotaID uint
+	kind    string
+	amount  int64
+}
+
+// Reservation 预扣回执（Settle/Release 幂等）。
+type Reservation struct {
+	items  []reservedItem
+	closed bool
+}
+
+// Reserve 原子预扣；超限返回 (nil, over)。estTokens 为完成 token 预估（含 prompt）。
+func (qm *QuotaManager) Reserve(snap *runtime.Snapshot, apiKeyID uint, alias string, estTokens int64) (*Reservation, *OverInfo) {
+	qs := matchQuotas(snap, apiKeyID, alias)
+	res := &Reservation{}
+	if len(qs) == 0 {
+		return res, nil
+	}
+	now := time.Now()
+	for _, q := range qs {
+		var amount int64
+		switch q.QuotaType {
+		case "requests":
+			amount = 1
+		case "tokens":
+			amount = estTokens
+		default:
+			continue
+		}
+		if amount <= 0 {
+			continue
+		}
+		// 周期过期的惰性重置（带条件，重复执行安全）
+		if now.After(q.ResetAt) {
+			qm.db.Model(&model.Quota{}).Where("id = ? AND reset_at <= ?", q.ID, now).
+				Updates(map[string]any{"used_value": 0, "reset_at": NextReset(q.Period, now)})
+		}
+		var upd *gorm.DB
+		if q.LimitValue > 0 {
+			upd = qm.db.Model(&model.Quota{}).
+				Where("id = ? AND enabled = ? AND (limit_value = 0 OR used_value + ? <= limit_value)", q.ID, true, amount).
+				UpdateColumn("used_value", gorm.Expr("used_value + ?", amount))
+		} else {
+			upd = qm.db.Model(&model.Quota{}).Where("id = ? AND enabled = ?", q.ID, true).
+				UpdateColumn("used_value", gorm.Expr("used_value + ?", amount))
+		}
+		if upd.Error != nil || upd.RowsAffected == 0 {
+			qm.Release(res) // 回滚已完成的行级预扣
+			over := &OverInfo{QuotaID: q.ID, OverAction: q.OverAction, DegradeAlias: q.DegradeAlias, Kind: q.QuotaType}
+			var fresh model.Quota
+			if qm.db.Select("used_value", "limit_value").First(&fresh, q.ID).Error == nil {
+				over.Used, over.Limit = fresh.UsedValue, fresh.LimitValue
+			}
+			return nil, over
+		}
+		res.items = append(res.items, reservedItem{quotaID: q.ID, kind: q.QuotaType, amount: amount})
+		qm.maybeAlert(q, amount)
+	}
+	return res, nil
+}
+
+// Settle 按实际 token 用量与预扣之差回补/退还；requests 保留（请求确实发生过）。
+func (qm *QuotaManager) Settle(res *Reservation, actualTokens int64) {
+	if res == nil || res.closed {
+		return
+	}
+	res.closed = true
+	for _, it := range res.items {
+		if it.kind != "tokens" {
+			continue
+		}
+		delta := actualTokens - it.amount
+		if delta == 0 {
+			continue
+		}
+		qm.db.Model(&model.Quota{}).Where("id = ?", it.quotaID).
+			UpdateColumn("used_value",
+				gorm.Expr("CASE WHEN used_value + ? < 0 THEN 0 ELSE used_value + ? END", delta, delta))
+	}
+}
+
+// Release 全额退还（含 requests）：上游完全不可达、零成本场景。
+func (qm *QuotaManager) Release(res *Reservation) {
+	if res == nil || res.closed {
+		return
+	}
+	res.closed = true
+	for _, it := range res.items {
+		qm.db.Model(&model.Quota{}).Where("id = ?", it.quotaID).
+			UpdateColumn("used_value",
+				gorm.Expr("CASE WHEN used_value - ? < 0 THEN 0 ELSE used_value - ? END", it.amount, it.amount))
+	}
+}
+
 // Consume 请求完成后累加用量：requests +1；tokens +prompt+completion。
 // 周期过期时先重置再累加（惰性重置），并检查预警阈值（REQ-014）。
+// 注：网关热路径已改用 Reserve/Settle（SEC-07）；此方法保留给统计校正类调用。
 func (qm *QuotaManager) Consume(snap *runtime.Snapshot, apiKeyID uint, alias string, promptTokens, completionTokens int) {
 	for _, q := range matchQuotas(snap, apiKeyID, alias) {
 		var delta int64
@@ -235,7 +342,9 @@ func postWebhook(url string, payload any) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if resp, err := http.DefaultClient.Do(req); err == nil {
+	// M-01：webhook 同样拒绝重定向跟随（管理端可配 URL，不引入 302 信道）
+	client := httpclient.New(6 * time.Second)
+	if resp, err := client.Do(req); err == nil {
 		resp.Body.Close()
 	}
 }

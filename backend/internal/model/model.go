@@ -261,8 +261,11 @@ type ConfigLoadLog struct {
 // ---------- 调用审计日志 (REQ-015) ----------
 
 type CallLog struct {
-	ID               uint      `gorm:"primaryKey" json:"-"`
-	RequestID        string    `gorm:"uniqueIndex;size:40" json:"request_id"`
+	ID        uint   `gorm:"primaryKey" json:"-"`
+	RequestID string `gorm:"uniqueIndex;size:40" json:"request_id"`
+	// SEC-04：客户端自带的 X-Request-ID 记录于此（非唯一列，可伪造/重复），
+	// request_id 恒为服务端生成——uniqueIndex 不再受客户端输入支配（防批删/顶号/日志注入）。
+	ClientRequestID  string    `gorm:"size:128;index" json:"client_request_id,omitempty"`
 	CreatedAt        time.Time `gorm:"index" json:"created_at"`
 	APIKeyID         uint      `gorm:"index" json:"api_key_id"`
 	APIKeyLabel      string    `gorm:"size:64" json:"api_key_label"`

@@ -29,8 +29,8 @@ type Server struct {
 	enc              *crypto.Cipher
 	secret           string
 	port             int
-	mfaStateInstance mfaStore    // 内存（单节点）或 Redis（多节点），见 redis_mfa.go
-	loginLimiter     loginLimit  // /auth/login per-IP 限速（SEC-08/M-03）
+	mfaStateInstance mfaStore   // 内存（单节点）或 Redis（多节点），见 redis_mfa.go
+	loginLimiter     loginLimit // /auth/login per-IP 限速（SEC-08/M-03）
 }
 
 // loginLimit 简单接口，便于测试替换。
