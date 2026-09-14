@@ -15,7 +15,7 @@ type AdminUser struct {
 	ID                uint       `gorm:"primaryKey" json:"id"`
 	Username          string     `gorm:"uniqueIndex;size:64" json:"username"`
 	PasswordHash      string     `gorm:"size:128" json:"-"`
-	MFASecret         string     `gorm:"size:128" json:"-"` // TOTP base32 secret（未启用也暂存，待 enable）
+	MFASecret         string     `gorm:"size:256" json:"-"` // TOTP secret（M-22："v2:" 前缀密文；兼容历史明文）
 	MFAEnabled        bool       `json:"mfa_enabled"`
 	MFABoundAt        *time.Time `json:"mfa_bound_at,omitempty"`
 	RecoveryCodesJSON string     `gorm:"type:text" json:"-"` // sha256 后的恢复码 JSON 数组

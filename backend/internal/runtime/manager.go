@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -209,13 +210,20 @@ func (m *Manager) Reload(reason string) error {
 	if err := m.db.Find(&providers).Error; err != nil {
 		loadErrs = append(loadErrs, "providers: "+err.Error())
 	}
+	badKey := map[uint]bool{} // SEC-03：解密失败的供应商 → 不参与选路（不再静默空钥）
 	for i := range providers {
 		p := providers[i]
 		if plain, err := m.enc.Decrypt(p.APIKeyEnc); err == nil {
 			p.APIKey = plain
 			p.APIKeyEnc = ""
 		} else {
-			p.APIKey = "" // 解密失败：保留空密钥，该上游调用时会失败
+			// 旧行为：静默置空密钥照常入表——上游一律 401，运维完全看不出是密文坏了
+			// （常见于 MASTER_KEY 更换或恢复损坏）。现：显式告警 + 状态页可见 + 路由剔除。
+			p.APIKey = ""
+			p.APIKeyEnc = ""
+			badKey[p.ID] = true
+			log.Printf("[runtime] WARNING: provider %q (id=%d) API key cannot be decrypted (wrong MASTER_KEY or corrupt record?) — excluded from routing", p.Name, p.ID)
+			loadErrs = append(loadErrs, fmt.Sprintf("provider %q: api key decrypt failed (excluded from routing)", p.Name))
 		}
 		snap.Providers[p.ID] = &p
 		snap.ProviderByName[p.Name] = &p
@@ -234,7 +242,7 @@ func (m *Manager) Reload(reason string) error {
 		var ups []ResolvedUpstream
 		for _, u := range a.Upstreams {
 			p, ok := snap.Providers[u.ProviderID]
-			if !ok || !p.Enabled {
+			if !ok || !p.Enabled || badKey[p.ID] {
 				continue
 			}
 			w := u.Weight

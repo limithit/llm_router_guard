@@ -6,7 +6,9 @@ package admin
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pquerna/otp"
@@ -18,6 +20,36 @@ import (
 )
 
 const issuer = "LLM-Router-Guard"
+
+// ---- MFA 密钥静态加密（M-22）----
+// TOTP secret 一旦泄露 = 2FA 完全旁路（且可跨 DB 复制粘贴）。落库统一用 MASTER_KEY
+// 加密并加 "v2:" 前缀；读取透明兼容历史明文行（无此前缀），下次绑定/改密钥自然升级。
+
+const mfaSecretPrefix = "v2:"
+
+func (s *Server) encodeMFASecret(secret string) (string, error) {
+	ct, err := s.enc.Encrypt(secret)
+	if err != nil {
+		return "", err
+	}
+	return mfaSecretPrefix + ct, nil
+}
+
+// decodeMFASecret 解密存储态 secret；历史明文（无前缀）原样返回。解密失败返回空串（调用方按未绑定处理）。
+func (s *Server) decodeMFASecret(stored string) string {
+	if stored == "" {
+		return ""
+	}
+	if !strings.HasPrefix(stored, mfaSecretPrefix) {
+		return stored // 迁移前的明文字段
+	}
+	plain, err := s.enc.Decrypt(strings.TrimPrefix(stored, mfaSecretPrefix))
+	if err != nil {
+		log.Printf("[security] MFA secret decrypt failed (MASTER_KEY changed?): %v", err)
+		return ""
+	}
+	return plain
+}
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
@@ -50,10 +82,14 @@ func validateTOTP(code, secret string) bool {
 // 返回 (本次步, 是否通过)。
 func (s *Server) verifyTOTP(u *model.AdminUser, code string) (int64, bool) {
 	opts := totp.ValidateOpts{Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1}
+	secret := s.decodeMFASecret(u.MFASecret) // M-22：解密存储态（历史明文透明兼容）
+	if secret == "" {
+		return 0, false
+	}
 	now := time.Now().UTC()
 	for w := int64(-1); w <= 1; w++ {
 		t := now.Add(time.Duration(w) * 30 * time.Second)
-		if ok, _ := totp.ValidateCustom(code, u.MFASecret, t, opts); ok {
+		if ok, _ := totp.ValidateCustom(code, secret, t, opts); ok {
 			step := t.Unix() / 30
 			if step <= u.LastTOTPStep {
 				return 0, false

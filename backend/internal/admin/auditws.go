@@ -56,7 +56,13 @@ func (s *Server) auditWS(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// 3) 101 响应（升级握手）——直接写 Hijack 返回的 rw 并 Flush 落 TCP
+	// 3) 先订阅广播中心，再发 101。
+	// 顺序很关键：101 一旦落 TCP，客户端即认为连接就绪并可触发审计写入；
+	// 若订阅后置，此窗口内的事件会静默丢失（push 型功能最忌讳的竞态）。
+	msgs, cancel := s.al.Broadcaster().Subscribe()
+	defer cancel()
+
+	// 4) 101 响应（升级握手）——直接写 Hijack 返回的 rw 并 Flush 落 TCP
 	_, err = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
@@ -67,10 +73,6 @@ func (s *Server) auditWS(c *gin.Context) {
 	if err != nil {
 		return
 	}
-
-	// 4) 订阅广播中心
-	msgs, cancel := s.al.Broadcaster().Subscribe()
-	defer cancel()
 
 	done := make(chan struct{})
 	go func() { // 读泵：仅处理控制帧（close → 断开；ping → pong），数据帧读过即弃

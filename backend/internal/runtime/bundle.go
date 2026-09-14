@@ -14,7 +14,7 @@ import (
 
 // ConfigBundle 可序列化的全量配置（密钥保持 DB 原样密文，跨版本/备份一致）。
 type ConfigBundle struct {
-	Providers  []model.Provider      `json:"providers"`
+	Providers  []BundleProvider      `json:"providers"`
 	Aliases    []model.ModelAlias    `json:"aliases"`
 	Keywords   []model.GuardKeyword  `json:"keywords"`
 	PIIRules   []model.PIIRule       `json:"pii_rules"`
@@ -26,12 +26,34 @@ type ConfigBundle struct {
 	ExportedAt time.Time             `json:"exported_at"`
 }
 
+// BundleProvider SEC-03：model.Provider.APIKeyEnc 带 json:"-"（防 API 响应泄漏），
+// 导致配置包/版本快照/备份文件在序列化时静默丢掉供应商密钥密文——恢复/回滚后
+// 所有上游变"空钥"，且旧行为对此毫无提示。此处显式导出密文（仍是 AES-GCM 密文，
+// 强度随 MASTER_KEY），并在恢复时对缺失密文的条目按名称保留库内现钥。
+type BundleProvider struct {
+	model.Provider
+	APIKeyEnc string `json:"api_key_enc"`
+}
+
+// WrapProviders 将 model.Provider 列表包成 bundle 形态（导出侧使用）。
+func WrapProviders(ps []model.Provider) []BundleProvider {
+	out := make([]BundleProvider, 0, len(ps))
+	for _, p := range ps {
+		// 嵌入的 Provider 已把自身密文标为 json:"-"，外层字段负责真正序列化
+		p.APIKey = "" // 内存明文字段绝不入包
+		out = append(out, BundleProvider{Provider: p, APIKeyEnc: p.APIKeyEnc})
+	}
+	return out
+}
+
 // ExportBundle 从数据库导出全量配置。
 func (m *Manager) ExportBundle() (*ConfigBundle, error) {
 	b := &ConfigBundle{Settings: map[string]string{}, ExportedAt: time.Now()}
-	if err := m.db.Find(&b.Providers).Error; err != nil {
+	var providers []model.Provider
+	if err := m.db.Find(&providers).Error; err != nil {
 		return nil, err
 	}
+	b.Providers = WrapProviders(providers)
 	if err := m.db.Preload("Upstreams").Find(&b.Aliases).Error; err != nil {
 		return nil, err
 	}
@@ -76,7 +98,31 @@ func (m *Manager) exportBundleFrom(_ *Snapshot) *ConfigBundle {
 }
 
 // RestoreBundle 事务内清空并回写全部配置表（REQ-004A 回滚 / REQ-019 恢复共用）。
+// SEC-03：密文缺失的 provider（旧版备份/手工编辑）按名称保留库内现有密文；
+// 两边都没有 → 直接报错拒绝半残恢复（此前静默建出空钥供应商）。
 func (m *Manager) RestoreBundle(b *ConfigBundle) error {
+	var existing []model.Provider
+	if err := m.db.Find(&existing).Error; err != nil {
+		return err
+	}
+	keepKey := map[string]string{} // name → 现库密文
+	for _, p := range existing {
+		if p.APIKeyEnc != "" {
+			keepKey[p.Name] = p.APIKeyEnc
+		}
+	}
+	for i := range b.Providers {
+		if b.Providers[i].APIKeyEnc == "" {
+			if old, ok := keepKey[b.Providers[i].Name]; ok {
+				b.Providers[i].APIKeyEnc = old
+			}
+		}
+		b.Providers[i].Provider.APIKeyEnc = b.Providers[i].APIKeyEnc
+		b.Providers[i].Provider.APIKey = ""
+		if b.Providers[i].Provider.APIKeyEnc == "" {
+			return fmt.Errorf("provider %q: 备份与库内均无 API Key 密文，拒绝恢复（请重新录入该供应商密钥后再操作）", b.Providers[i].Name)
+		}
+	}
 	return m.db.Transaction(func(tx *gorm.DB) error {
 		for _, table := range []any{
 			&model.Provider{}, &model.AliasUpstream{}, &model.ModelAlias{},
@@ -88,7 +134,11 @@ func (m *Manager) RestoreBundle(b *ConfigBundle) error {
 			}
 		}
 		if len(b.Providers) > 0 {
-			if err := tx.Create(&b.Providers).Error; err != nil {
+			plain := make([]model.Provider, 0, len(b.Providers))
+			for _, bp := range b.Providers {
+				plain = append(plain, bp.Provider)
+			}
+			if err := tx.Create(&plain).Error; err != nil {
 				return err
 			}
 		}

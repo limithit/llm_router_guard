@@ -45,6 +45,25 @@ func (s *Server) listProviders(c *gin.Context) {
 	okPaged(c, rows, int(total), page, size)
 }
 
+// validateProviderReq 供应商写入校验（M-16 延伸 / M-27）：
+// 端点必须是 http/https 绝对地址（拒绝 file:// 等协议注入与空 URL 建出必挂供应商），
+// 名称/密钥长度封顶（超长直接 400 而不是 DB 层 500）。
+func validateProviderReq(name, baseURL, apiKey string) error {
+	if strings.TrimSpace(name) == "" || len(name) > 64 {
+		return fmt.Errorf("供应商名称必填且不超过 64 字节")
+	}
+	if strings.TrimSpace(baseURL) == "" || len(baseURL) > 512 {
+		return fmt.Errorf("端点 URL 必填且不超过 512 字节")
+	}
+	if err := validateHTTPURL("供应商端点", baseURL); err != nil {
+		return err
+	}
+	if len(apiKey) > 4096 {
+		return fmt.Errorf("API Key 不能超过 4096 字节")
+	}
+	return nil
+}
+
 func (s *Server) createProvider(c *gin.Context) {
 	var req struct {
 		Name     string `json:"name"`
@@ -54,12 +73,16 @@ func (s *Server) createProvider(c *gin.Context) {
 		Enabled  bool   `json:"enabled"`
 		Remark   string `json:"remark"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" || req.BaseURL == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		s.fail(c, 400, 40001, "请填写供应商名称、协议类型与端点 URL")
 		return
 	}
 	if !validProtocol(req.Protocol) {
 		s.fail(c, 400, 40001, "protocol 必须是 openai_chat / openai_responses / anthropic 之一")
+		return
+	}
+	if err := validateProviderReq(req.Name, req.BaseURL, req.APIKey); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	enc, err := s.enc.Encrypt(req.APIKey)
@@ -105,6 +128,10 @@ func (s *Server) updateProvider(c *gin.Context) {
 	}
 	if !validProtocol(req.Protocol) {
 		s.fail(c, 400, 40001, "protocol 必须是 openai_chat / openai_responses / anthropic 之一")
+		return
+	}
+	if err := validateProviderReq(req.Name, req.BaseURL, req.APIKey); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	before := p

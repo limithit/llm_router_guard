@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -75,20 +76,68 @@ func (s *Server) listModels(c *gin.Context) {
 	okPaged(c, out, int(total), page, size)
 }
 
+type upstreamIn struct {
+	ProviderID    uint   `json:"provider_id"`
+	UpstreamModel string `json:"upstream_model"`
+	Weight        int    `json:"weight"`
+}
+
+// validateAliasReq M-27 写侧：长度封顶 + 供应商真实存在（引用不存在 ProviderID 的
+// 上游在运行时被静默跳过——建出的是永远不生效的假配置）。
+func (s *Server) validateAliasReq(alias string, dmt int, ups []upstreamIn) error {
+	if alias == "" || len(alias) > 128 {
+		return fmt.Errorf("别名必填且不超过 128 字节")
+	}
+	if dmt < 0 || dmt > 10_000_000 {
+		return fmt.Errorf("default_max_tokens 需为 0-10000000（0 表示不设默认）")
+	}
+	if len(ups) > 50 {
+		return fmt.Errorf("单个别名最多 50 个上游")
+	}
+	ids := make([]uint, 0, len(ups))
+	for _, u := range ups {
+		if u.UpstreamModel == "" || len(u.UpstreamModel) > 128 {
+			return fmt.Errorf("上游模型名必填且不超过 128 字节")
+		}
+		if u.ProviderID == 0 {
+			return fmt.Errorf("上游必须选择供应商")
+		}
+		ids = append(ids, u.ProviderID)
+	}
+	var cnt int64
+	s.db.Model(&model.Provider{}).Where("id IN ?", ids).Count(&cnt)
+	if int(cnt) != len(dedupe(ids)) {
+		return fmt.Errorf("存在不存在的供应商 ID（先创建供应商再配置上游）")
+	}
+	return nil
+}
+
+func dedupe(ids []uint) []uint {
+	seen := map[uint]bool{}
+	out := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func (s *Server) createModel(c *gin.Context) {
 	var req struct {
-		Alias            string `json:"alias"`
-		Enabled          bool   `json:"enabled"`
-		Remark           string `json:"remark"`
-		DefaultMaxTokens int    `json:"default_max_tokens"`
-		Upstreams        []struct {
-			ProviderID    uint   `json:"provider_id"`
-			UpstreamModel string `json:"upstream_model"`
-			Weight        int    `json:"weight"`
-		} `json:"upstreams"`
+		Alias            string       `json:"alias"`
+		Enabled          bool         `json:"enabled"`
+		Remark           string       `json:"remark"`
+		DefaultMaxTokens int          `json:"default_max_tokens"`
+		Upstreams        []upstreamIn `json:"upstreams"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Alias == "" || len(req.Upstreams) == 0 {
 		s.fail(c, 400, 40001, "请填写别名并至少添加一个上游")
+		return
+	}
+	if err := s.validateAliasReq(req.Alias, req.DefaultMaxTokens, req.Upstreams); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	a := model.ModelAlias{Alias: req.Alias, Enabled: req.Enabled, Remark: req.Remark, DefaultMaxTokens: req.DefaultMaxTokens}
@@ -128,18 +177,18 @@ func (s *Server) updateModel(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Alias            string `json:"alias"`
-		Enabled          bool   `json:"enabled"`
-		Remark           string `json:"remark"`
-		DefaultMaxTokens int    `json:"default_max_tokens"`
-		Upstreams        []struct {
-			ProviderID    uint   `json:"provider_id"`
-			UpstreamModel string `json:"upstream_model"`
-			Weight        int    `json:"weight"`
-		} `json:"upstreams"`
+		Alias            string       `json:"alias"`
+		Enabled          bool         `json:"enabled"`
+		Remark           string       `json:"remark"`
+		DefaultMaxTokens int          `json:"default_max_tokens"`
+		Upstreams        []upstreamIn `json:"upstreams"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Alias == "" || len(req.Upstreams) == 0 {
 		s.fail(c, 400, 40001, "请填写别名并至少添加一个上游")
+		return
+	}
+	if err := s.validateAliasReq(req.Alias, req.DefaultMaxTokens, req.Upstreams); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {

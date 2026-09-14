@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +11,36 @@ import (
 	"llmrouter/internal/model"
 	"llmrouter/internal/quota"
 )
+
+// validateQuotaReq M-17：枚举字段严格化（脏 period 静默按 day 重置、脏 over_action
+// 静默按 reject 处理都是隐性行为漂移），上限必须为正。
+func validateQuotaReq(q *model.Quota) error {
+	if q.LimitValue <= 0 {
+		return fmt.Errorf("配额上限必须大于 0")
+	}
+	switch q.QuotaType {
+	case "requests", "tokens":
+	default:
+		return fmt.Errorf("配额类型仅支持 requests/tokens")
+	}
+	switch q.Period {
+	case "day", "week", "month":
+	default:
+		return fmt.Errorf("重置周期仅支持 day/week/month")
+	}
+	switch q.OverAction {
+	case "reject", "degrade", "":
+	default:
+		return fmt.Errorf("超限动作仅支持 reject/degrade")
+	}
+	if q.OverAction == "degrade" && q.DegradeAlias == "" {
+		return fmt.Errorf("降级动作必须指定目标别名")
+	}
+	if q.ModelAlias == "" {
+		q.ModelAlias = "*"
+	}
+	return nil
+}
 
 // ---- 配额 ----
 
@@ -47,14 +78,11 @@ func (s *Server) createQuota(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	if req.LimitValue <= 0 {
-		s.fail(c, http.StatusBadRequest, 40001, "配额上限必须大于 0")
+	if err := validateQuotaReq(&req); err != nil {
+		s.fail(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}
 	req.ResetAt = quota.NextReset(req.Period, time.Now())
-	if req.ModelAlias == "" {
-		req.ModelAlias = "*"
-	}
 	if err := s.db.Create(&req).Error; err != nil {
 		s.fail(c, 500, 50001, "创建失败")
 		return
@@ -80,11 +108,8 @@ func (s *Server) updateQuota(c *gin.Context) {
 	q.APIKeyID, q.ModelAlias, q.QuotaType, q.Period, q.LimitValue =
 		req.APIKeyID, req.ModelAlias, req.QuotaType, req.Period, req.LimitValue
 	q.OverAction, q.DegradeAlias, q.Enabled = req.OverAction, req.DegradeAlias, req.Enabled
-	if q.ModelAlias == "" {
-		q.ModelAlias = "*"
-	}
-	if req.LimitValue <= 0 {
-		s.fail(c, http.StatusBadRequest, 40001, "配额上限必须大于 0")
+	if err := validateQuotaReq(&q); err != nil {
+		s.fail(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}
 	if err := s.db.Save(&q).Error; err != nil {
@@ -132,16 +157,20 @@ func (s *Server) batchQuotas(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
+	if len(req.Items) > maxBatchItems { // M-25：批量上限
+		s.fail(c, http.StatusBadRequest, 40001, fmt.Sprintf("单次批量上限 %d 条", maxBatchItems))
+		return
+	}
 	var created int
 	for _, it := range req.Items {
 		it.ID = 0
-		it.ResetAt = quota.NextReset(it.Period, time.Now())
 		if it.ModelAlias == "" {
 			it.ModelAlias = "*"
 		}
-		if it.LimitValue <= 0 {
+		if it.LimitValue <= 0 || validateQuotaReq(&it) != nil {
 			continue
 		}
+		it.ResetAt = quota.NextReset(it.Period, time.Now())
 		if err := s.db.Create(&it).Error; err == nil {
 			created++
 		}
@@ -182,8 +211,8 @@ func (s *Server) createRateLimit(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	if req.WindowSeconds <= 0 || req.MaxRequests <= 0 {
-		s.fail(c, http.StatusBadRequest, 40001, "窗口与上限必须为正数")
+	if req.WindowSeconds <= 0 || req.WindowSeconds > 86400 || req.MaxRequests <= 0 || req.MaxRequests > 10_000_000 {
+		s.fail(c, http.StatusBadRequest, 40001, "窗口需为 1-86400 秒、上限需为 1-10000000")
 		return
 	}
 	if req.ModelAlias == "" {
@@ -213,6 +242,11 @@ func (s *Server) updateRateLimit(c *gin.Context) {
 	before := r
 	r.APIKeyID, r.ModelAlias, r.WindowSeconds, r.MaxRequests, r.Enabled =
 		req.APIKeyID, req.ModelAlias, req.WindowSeconds, req.MaxRequests, req.Enabled
+	// M-20：更新此前毫无校验——负窗口/零上限可直接把该 Key 全量锁死或全量放开
+	if r.WindowSeconds <= 0 || r.WindowSeconds > 86400 || r.MaxRequests <= 0 || r.MaxRequests > 10_000_000 {
+		s.fail(c, http.StatusBadRequest, 40001, "窗口需为 1-86400 秒、上限需为 1-10000000")
+		return
+	}
 	if r.ModelAlias == "" {
 		r.ModelAlias = "*"
 	}

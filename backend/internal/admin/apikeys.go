@@ -2,6 +2,9 @@
 package admin
 
 import (
+	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -10,6 +13,39 @@ import (
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/model"
 )
+
+// validateApiKeyLists M-30 写侧：两个 JSON 列表字段落库前强制合法
+// （读侧已 fail-closed；写侧不校验的话，一次坏数据就把整把 Key 静默锁死/放开）。
+func validateApiKeyLists(modelsJSON, ipJSON string) error {
+	if modelsJSON != "" {
+		var l []string
+		if err := json.Unmarshal([]byte(modelsJSON), &l); err != nil {
+			return fmt.Errorf("allowed_models_json 必须是 JSON 字符串数组")
+		}
+		if len(l) > 500 {
+			return fmt.Errorf("授权别名最多 500 个")
+		}
+	}
+	if ipJSON != "" {
+		var l []string
+		if err := json.Unmarshal([]byte(ipJSON), &l); err != nil {
+			return fmt.Errorf("ip_allowlist_json 必须是 JSON 字符串数组")
+		}
+		if len(l) > 200 {
+			return fmt.Errorf("IP 白名单最多 200 条")
+		}
+		for _, c := range l {
+			c = strings.TrimSpace(c)
+			if _, _, err := net.ParseCIDR(c); err == nil {
+				continue
+			}
+			if net.ParseIP(c) == nil { // L-02：裸 IP 合法（等 /32、/128）
+				return fmt.Errorf("IP 白名单条目无法解析：%s（需 CIDR 或 IP）", c)
+			}
+		}
+	}
+	return nil
+}
 
 func (s *Server) listApiKeys(c *gin.Context) {
 	page, size := parsePage(c)
@@ -34,6 +70,10 @@ func (s *Server) createApiKey(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
 		s.fail(c, http.StatusBadRequest, 40001, "请输入 Key 名称")
+		return
+	}
+	if err := validateApiKeyLists(req.AllowedModelsJSON, req.IPAllowlistJSON); err != nil {
+		s.fail(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}
 	key := "sk-" + crypto.RandomHex(16)
@@ -71,6 +111,10 @@ func (s *Server) updateApiKey(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
+		return
+	}
+	if err := validateApiKeyLists(req.AllowedModelsJSON, req.IPAllowlistJSON); err != nil {
+		s.fail(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}
 	before := k

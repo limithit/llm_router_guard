@@ -324,9 +324,14 @@ func (s *Server) mfaEnable(c *gin.Context) {
 	}
 	sec := s.securitySettings()
 	plain, hashed := generateRecoveryCodes(sec.RecoveryCodeCount)
+	encSecret, err := s.encodeMFASecret(secret) // M-22：静态加密
+	if err != nil {
+		s.fail(c, http.StatusInternalServerError, 50001, "密钥加密失败")
+		return
+	}
 	now := time.Now()
 	s.db.Model(&model.AdminUser{}).Where("id = ?", uid).Updates(map[string]any{
-		"mfa_secret": secret, "mfa_enabled": true, "mfa_bound_at": &now,
+		"mfa_secret": encSecret, "mfa_enabled": true, "mfa_bound_at": &now,
 		"recovery_codes_json": marshalRecoveryHashed(hashed), "last_totp_step": 0,
 	})
 	s.recordOp(c, "mfa_bind", "security", operatorOf(c), nil, nil)
