@@ -15,6 +15,15 @@ import (
 	"llmrouter/internal/gateway"
 )
 
+// bodyLimit SEC-06：预认证端点（登录）请求体封顶——匿名攻击者不得用巨型 body
+// 钉住内存/喂 bcrypt 前置解析。超限由 net/http 在读取时中断（绑定报 40001）。
+func bodyLimit(n int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
+		c.Next()
+	}
+}
+
 // Register 在 gin 实例上注册所有路由。
 func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -54,7 +63,7 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 
 	// 管理 API
 	api := r.Group("/api/admin/v1")
-	api.POST("/auth/login", s.login)
+	api.POST("/auth/login", bodyLimit(1<<20), s.login)
 	api.POST("/auth/logout", s.AuthMiddleware(), s.logout)
 	api.GET("/auth/me", s.AuthMiddleware(), s.me)
 	api.PUT("/auth/password", s.AuthMiddleware(), s.changePassword)

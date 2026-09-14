@@ -154,7 +154,13 @@ func (s *Server) finishLoginOK(u *model.AdminUser) {
 
 // onLoginFail 连续 5 次失败锁定账户（REQ-022 ②）。
 // SEC-08：failed_logins 用 SQL 原子自增（并发不可绕过阈值），锁定按条件更新。
+// M-03：上一锁已到期 → 先清零再计（否则"过期后 1 次输错 = 再锁 15 分钟"，
+// 攻击者每 16 分钟一个坏请求即可把管理员永久锁在门外）。
 func (s *Server) onLoginFail(u *model.AdminUser) {
+	now := time.Now()
+	s.db.Model(&model.AdminUser{}).
+		Where("id = ? AND locked_until IS NOT NULL AND locked_until <= ?", u.ID, now).
+		UpdateColumn("failed_logins", 0)
 	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
 		UpdateColumn("failed_logins", gorm.Expr("failed_logins + 1"))
 	var fresh int
@@ -163,8 +169,8 @@ func (s *Server) onLoginFail(u *model.AdminUser) {
 		return
 	}
 	if fresh >= 5 {
-		loc := time.Now().Add(15 * time.Minute)
-		s.db.Model(&model.AdminUser{}).Where("id = ? AND (locked_until IS NULL OR locked_until < ?)", u.ID, time.Now()).
+		loc := now.Add(15 * time.Minute)
+		s.db.Model(&model.AdminUser{}).Where("id = ? AND (locked_until IS NULL OR locked_until < ?)", u.ID, now).
 			Update("locked_until", loc)
 	}
 }

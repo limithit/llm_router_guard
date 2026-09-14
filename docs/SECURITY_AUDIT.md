@@ -9,7 +9,7 @@
 | 审计范围 | `backend/` 全部 Go 源码（Gin+GORM 网关 + 管理 API）、`frontend/src` 关键路径、`deploy/` + `docker-compose.yml` + `.env.template` |
 | 方法 | 8 个攻击面域独立审计（认证会话 / 授权与危险操作 / 网关转发与 SSRF / 注入 / 密码学与密钥 / DoS 与资源 / 信息泄露 / 前端与传输），两轮执行；全部 critical/high 发现由**对抗性复核代理**独立读码 refute-or-confirm（默认倾向驳回，误报已剔除） |
 | 证据存档 | `docs/security/raw/*.json`（每条发现含文件:行号 + 逐字代码引用 + 复核结论，可逐条回放） |
-| 修复状态 | 本报告仅记录风险，**全部条目尚未修复** |
+| 修复状态 | **已于 `security` 分支全量处置**（批1 `f951d76` / 批2 `997b8b7` / 批3 `70b8a23` / 批4 `b46eff7`）；逐项状态见 **§七 修复状态矩阵**（含残余风险说明） |
 
 **裁定后统计**：1 严重（critical）、9 高危（high）、约 34 中危（medium）、约 12 低危（low）。
 
@@ -164,3 +164,70 @@
 - 本报告为静态读码结论；对上游/供应商生态的信任假设（“恶意/被劫供应商”类）均按产品文档的部署姿势评估。
 
 *原始证据：`docs/security/raw/audit-*.json`（8 域全量发现，含逐字代码引用）与 `verify-*.json`（19 条严重项的对抗复核全文）。*
+
+---
+
+## 七、修复状态矩阵（`security` 分支，2026-09）
+
+图例：✅ 已修复 ｜ ◐ 部分修复（附边界） ｜ ○ 记录为残余风险（附理由）。
+批1 `f951d76`（认证会话面）· 批2 `997b8b7`（网关/审计完整性面）· 批3 `70b8a23`（备份/写侧校验/MFA 加密）· 批4 `b46eff7`（M/L 清理 + 运维卫生 + TLS 文档）· 批5（矩阵评审中揪出的两处残余：锁定链复位、登录体上限 + 本矩阵定稿）。
+
+| # | 状态 | 处置摘要（批次） |
+|---|---|---|
+| SEC-01 | ✅ | ①（批1）compose `${JWT_SECRET:?}`/`${MASTER_KEY:?}` 强制必填；`enforceSecretPolicy` 哨兵前缀检测（`change-me`/`changeme`/已知默认值→拒绝启动，`ALLOW_INSECURE_DEFAULTS=1` 显式豁免）；大小写不敏感比较，消除"告警永不触发" |
+| SEC-02 | ✅ | ①（批1）`ADMIN_PASSWORD` 留空→首启 `crypto.RandomHex(12)` 一次性口令打印日志 + `must_change_password` 强制改密（改密前仅 `scope=pw` 受限会话）；已有用户时设置它给出明确"仅首启生效"日志；compose DB 落卷防口令回退；`.env.template` 同步 |
+| SEC-03 | ✅ | ③（批3）`BundleProvider` 显式序列化 `api_key_enc`（密文形态）；恢复时缺失密文按名称保留库内现钥、两边皆无→拒绝恢复（不再静默建空钥供应商）；运行时解密失败→告警日志 + 载入错误状态页可见 + 该供应商从选路剔除 |
+| SEC-04 | ✅ | ②（批2）主 ID 恒为服务端 32-hex；客户端 `X-Request-ID` 清洗（去控制符/截 128B）后存新列 `client_request_id`（非唯一）；审计批插失败→逐条重试仅丢坏行并限量留痕 |
+| SEC-05 | ✅ | ②（批2）`Observe` 标签清洗+截断；基数上限 512、溢出归并 `*` 桶；QPS 采样空闲驱逐（>10min 零流量出表）；模型名解析长度界 |
+| SEC-06 | ✅ | ①⑤（批1 `http.Server{ReadHeaderTimeout:10s, ReadTimeout:90s, IdleTimeout:120s, MaxHeaderBytes:1MiB}`，`cfg.ReadTimeout` 死配置接通；批5 登录路由 `MaxBytesReader` 1MiB——匿名面唯一无界 body 关死。SSE 不设 WriteTimeout 属设计内） |
+| SEC-07 | ✅ | ②（批2）配额改 预扣(reserve)→结算(settle)/退还(release)：条件原子 `UPDATE ... SET used=used+? WHERE used+?<=limit`（周期惰性重置）；失败/中断/被拦截流按已产生量结算或退还；上游 4xx 保留请求计数、退还 token 预扣 |
+| SEC-08 | ✅ | ①（批1）`failed_logins` 原子自增（`gorm.Expr`）+ 条件锁定；成功登录（全链认证后）才清零；per-IP 登录限速叠加（M-03） |
+| SEC-09 | ✅ | ①（批1）`mfa_required_for_all` 时未绑定用户只发 `scope=mfa` 受限令牌（2h，白名单外路由 40303），绑定/登出/查我可用 |
+| SEC-10 | ✅ | ②（批2）`guardCanonicalInput` 序列化投影：Content/工具调用 name+arguments（JSON 字符串级 walk 掩码）/工具定义 name+description+parameters/结果名全部过检，命中就地改写；`InputPlainText` 纳入工具文本（审计/计费可见）；缓冲与流式路径的工具文本均过 CheckOutput；`mergeToolText` JSON 压缩防边界标签伪造 |
+| M-01 | ◐ | ②③（批2+3）共享 `httpclient` 工厂拒绝一切重定向（gateway/health/testProvider/webhook 四处）；base_url 仅 http/https。**残余**：不拦私网目标——单角色"管理员=可信运营商"信任模型使然，多租户请网络层收敛出网（已写入报告 §六 姿势与 quickstart §9） |
+| M-02 | ✅ | ①（批1）`sessions_invalid_before`：登出/改密/解绑 MFA/解绑他人 → 该用户此前签发 JWT 全失效（对照 `iat`） |
+| M-03 | ✅ | ①⑤（批1 per-IP 登录限速 10/min，429+Retry-After，bcrypt 前先查；批5 锁定到期后计数清零——否则"过期后一次输错即再锁 15 分钟"，攻击者每 16 分钟一个坏请求即可永久锁死管理员） |
+| M-04 | ✅ | ①（批1）审计 IP 统一 `c.ClientIP()`（尊重 TRUSTED_PROXIES 姿势，默认不信任 XFF） |
+| M-05 | ✅ | ③④（批3+4）`csvCell` 公式前缀防护应用于全部导出：敏感词、调用日志（含 request_id/model/reason）、操作日志、token 统计 |
+| M-06 | ✅ | ④（批4）HKDF-SHA256 拉伸派生（`k2:` 密文格式，历史密文透明兼容）+ 批1 启动弱密钥拒绝。爆破可行性取决于口令熵——策略已挡占位/弱默认 |
+| M-07 | ✅ | ①③（批1 step 单调防重放 + 恢复码 CAS 原子消费；批3 mfa_secret AES-GCM "v2:" 加密，明文旧行兼容读） |
+| M-08 | ✅ | ①（批1）内存票据 5min TTL + 惰性清扫 |
+| M-09 | ✅ | ①（批1）GenerateFromPassword 错误→500 不出坏哈希；8..72 字节界 |
+| M-10 | ✅ | ①（批1）口令校验先于锁定判定、不存在用户走 dummy bcrypt 等时、统一"用户名或密码错误"；40301 仅认证后返回；前端 interceptor 正确展示（`a56f7e5`+批1） |
+| M-11 | ✅ | ④（批4）`METRICS_TOKEN` Bearer（常量时间比较）；未配置时开放+启动醒目告警——内网姿势仍是主防线（文档化） |
+| M-12 | ✅ | ②（批2）白名单外/不存在统一 404 `model_not_found`（同文案同状态，无预言机） |
+| M-13 | ✅ | ②（批2）拦截对外只回通用"rejected by content policy"+Retry-After；命中详情仅入审计 |
+| M-14 | ◐ | ④（批4）握手校验 `Origin` 与 Host 同源（浏览器不可伪造 Origin → CSWSH 关死）；非浏览器无 Origin 客户端兼容。**残余**：token 仍在 query（反代日志面）——浏览器 WS 无法带自定义头的折中，已在 TLS 文档提示反代勿记 query |
+| M-15 | ✅ | ①（批1）CSP 全指令（script-src 'self' 无 unsafe-eval、frame-ancestors none、form-action 'self'…） |
+| M-16 | ✅ | ④（批4）quickstart 中英 §9：Caddy/nginx TLS+HSTS+SSE 不缓冲+TRUSTED_PROXIES 姿势。进程原生 TLS 不做=设计（反代终结） |
+| M-17 | ✅ | ④（批4）原子连接准入移到体读取之前（Handle+CountTokens 双路径）；解析/护栏在限流后是因果必需（需 alias），以连接级+每 Key 并发封顶前置成本 |
+| M-18 | ✅ | ②③（批2+3）队列满同步兜底**失败不再静默**（日志留痕）；同步写为"审计不丢优先"的设计取舍，保留并文档化 |
+| M-19 | ◐ | ②（批2）check→扣减合并为 reserve 条件原子写（每请求 2 写：预扣+结算，原为 3）；"合并批量落账"未做——sqlite 单写者下由 `SetMaxOpenConns(1)`+WAL 串行化兜底 |
+| M-20 | ✅ | ④（批4）`TryAdmitConn` 检查+占坑原子化；每 Key 在途上限 64（分表计数，条目随归零回收） |
+| M-21 | ✅ | ④（批4）SLB 候选快照在锁内（纯内存），Redis SWRR 往返（≤300ms）挪到锁外；本地游标兜底路径二次短锁 |
+| M-22 | ✅ | ④（批4）快照内容+状态与上一条相同→跳过 ConfigVersion 大行与加载日志（只推进 meta）；存量剪枝（保留 50）原有 |
+| M-23 | ◐ | ②（批2）单次 ToLower+输出命中即停。**残余**：流式全文增量扫描未实现（O(L²/阈值) 仍在）；缓解=每请求体积封顶 16MiB+阈值下限 64B，属性能项非安全项 |
+| M-24 | ✅ | ④（批4）导入模型 ≤2000 条、单名 ≤128B、控制字符拒 |
+| M-25 | ✅ | ③（批3）CSV 导入 2MiB/5000 行/单词 512B；batch 端点 5000 条上限 + word 长度界 |
+| M-26 | ✅ | ②（批2）lower 每请求一次并传入全部匹配 |
+| M-27 | ✅ | ③（批3）KV 五模块全量定界（保留天数/超时/采样/热加载/重试/熔断/阈值/策略枚举/恢复码数/宽限期）；③批3 provider/alias/quota 写侧同修 |
+| M-28 | ✅ | ④（批4）`ReplaceAllLiteralString`（两处），`$1` 不再展开捕获组 |
+| M-29 | ✅ | ②（批2）访问日志 `EscapedPath()`（%0a 不再还原为换行） |
+| M-30 | ✅ | ①③（批1 读侧坏 JSON→fail-closed；批3 写侧 JSON 形态/长度/CIDR 合法性校验） |
+| M-31 | ✅ | ②（批2）degrade 目标再过 Key 白名单（不在授权内→不换 Key 直接拒）；限流维度按目标别名复跑 |
+| M-32 | ◐ | ③④（批3 密文完整性+拒绝半残恢复；批4 审计条目含来源文件名/体积/各表计数/导出时间）。**残余**：restore 仍接受自造 bundle 全量覆盖（单角色全权设计内）；KV 键白名单/行级校验复用未做 |
+| M-33 | ✅ | ④（批4）deploy/（含 env.sh 本地 DSN 口令与 linux 二进制）从库中移除 + .gitignore；新克隆零口令 |
+| L-01 | ✅ | ②（批2）`MaxBytesReader` → 413 显式拒绝（不再截断伪 400） |
+| L-02 | ✅ | ①（批1）裸 IP 等价 /32、/128 参与匹配 |
+| L-03 | ○ | 残余：单角色是产品既定设计（README 声明）；解绑他人 MFA 已有操作审计+会话吊销（批1 unbind→invalidate）缓解。RBAC 属功能演进 |
+| L-04 | ◐ | ③④（批3+4）restore/批量导入等补齐前后摘要。**边界**：改 Key 类操作故意不落 before/after 明文（避免二次泄密），以失效时间戳/掩码替代 |
+| L-05 | ✅ | ④（批4）page_size ≤500（原缺界→归 20 兜底已有，补上界说明）+ 全部 10 处 LIKE 通配符转义 `ESCAPE '\'` |
+| L-06 | ○ | 残余：token 计数必须 regexp2（tiktoken 兼容），输入=租户文本但体积封顶 16MiB+长度预算；上游依赖面（护栏正则为 RE2）。建议发布前 `govulncheck` 补扫（§六 已列） |
+| L-07 | ○ | 残余：上游错误体透传为产品特性（客户端需厂商原始错误）；网关自身错误已通用化（批2），透传内容不含网关内部信息 |
+| L-08 | ○ | 残余：前4后2 展示为 Key 定位所需；sk-128bit 熵下 12bit 泄露无实际碰撞风险 |
+| L-09 | ✅ | ②（批2）SSE 帧/上游头只带服务端 reqID；客户端值清洗后仅入审计列 |
+| L-10 | ✅ | ④（批4）`failInternal`：驱动/IO 原文只进日志，客户端固定文案；400 文案全部为自撰校验语 |
+| L-11 | ✅ | ②（批2）限流/配额对外通用文案 + Retry-After；规则 id/阈值/体量仅入审计 |
+| L-12 | ✅ | ①（批1）403/429 交 interceptor 正确渲染（与 `a56f7e5` 通用文案合并生效） |
+
+**汇总**：✅ 50 ｜ ◐ 6（M-01/M-14/M-19/M-23/M-32/L-04，残余均附理由与部署侧对策）｜ ○ 4（L-03/L-06/L-07/L-08，产品设计与熵预算内）。每批合入前：`go build ./...` + `go test ./...` 全绿 + 前端 `npm run build` 通过；批 3 另附 admin 测试 3 连跑消 flake（审计 WS"101 先于订阅"为彼时修真的既有竞态）。
