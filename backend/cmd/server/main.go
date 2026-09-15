@@ -34,6 +34,9 @@ import (
 )
 
 func main() {
+	// 先加载 .env（若存在）再读取配置：真实环境变量始终优先于文件值。
+	// 使裸进程 `./server` 与 docker compose 共享同一份 .env 语义（见 internal/config/dotenv.go）。
+	config.LoadDotenv()
 	cfg := config.Load()
 
 	// SEC-01：占位/出厂密钥一律拒绝启动（除非 ALLOW_INSECURE_DEFAULTS=1 的显式本地开发豁免）。
