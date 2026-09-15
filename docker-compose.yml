@@ -25,6 +25,10 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - HEALTH_CHECK_SECONDS=${HEALTH_CHECK_SECONDS:-30}
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      # M-11：/metrics Bearer 令牌（未设置则保持开放，容器日志会告警）
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+      # tiktoken 离线缓存目录（配合卷挂载预置 cl100k_base，避免启动时联网下载）
+      - TIKTOKEN_CACHE_DIR=${TIKTOKEN_CACHE_DIR:-/app/data/tiktoken}
     volumes:
       - ${DATA_DIR_PATH:-./data}:/app/data
     restart: unless-stopped
