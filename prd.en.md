@@ -22,10 +22,9 @@
 5. [Non-Functional Requirements](#5-non-functional-requirements)
 6. [Technical Implementation](#6-technical-implementation)
 7. [Deployment Plan](#7-deployment-plan)
-8. [Implementation Roadmap](#8-implementation-roadmap)
-9. [Risks and Mitigation](#9-risks-and-mitigation)
-10. [Success Criteria](#10-success-criteria)
-11. [Appendix](#11-appendix)
+8. [Risks and Mitigation](#8-risks-and-mitigation)
+9. [Success Criteria](#9-success-criteria)
+10. [Appendix](#10-appendix)
 
 
 ## 1. Project Overview
@@ -608,36 +607,7 @@ All configuration is stored in the database, and changes take effect in real tim
 - Guides the user to create an administrator account and default API Key
 
 
-## 8. Implementation Roadmap
-
-### 8.1 Phased Implementation Plan
-
-| Phase | Duration | Core Deliverables |
-|------|------|----------|
-| **Phase 1: Basic Framework** | 2 weeks | Project skeleton, database design (SQLite/PostgreSQL/MySQL), basic management API, React front-end framework setup, provider management CRUD |
-| **Phase 2: Core Routing** | 2 weeks | Multi-protocol access (OpenAI Chat + Anthropic), model alias management, SLB engine |
-| **Phase 3: Basic Guardrails** | 2 weeks | UI management for sensitive terms/PII/injection rules, input/output filtering engine, audit logs |
-| **Phase 4: Quota Management** | 1.5 weeks | Quota management UI, rate limit UI, scheduled reset engine |
-| **Phase 5: Protocol Extension** | 1.5 weeks | OpenAI Responses API adapter, bidirectional protocol conversion |
-| **Phase 6: Enhanced Guardrails** | 2 weeks | Qwen3Guard integration, streaming incremental detection, fact checking |
-| **Phase 7: Security and Operations** | 1 week | MFA module, hot-reload status visualization, data backup, performance testing |
-
-**Total: approximately 12 weeks**
-
-### 8.2 Milestones
-
-| Milestone | Time | Deliverables |
-|--------|------|--------|
-| M1 | End of week 2 | Management framework usable, provider management online |
-| M2 | End of week 4 | Core routing capability usable, model alias configuration online |
-| M3 | End of week 6 | Complete guardrail functionality online |
-| M4 | End of week 7.5 | Quota management online |
-| M5 | End of week 9 | Responses API support |
-| M6 | End of week 11 | Enhanced guardrails online |
-| M7 | End of week 12 | MFA + production release |
-
-
-## 9. Risks and Mitigation
+## 8. Risks and Mitigation
 
 | Risk | Impact | Probability | Mitigation Measures |
 |------|------|------|----------|
@@ -650,7 +620,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | React front-end and back-end embed integration | Complex build process | Low | Use standard go:embed; CI/CD automated build |
 
 
-## 10. Success Criteria
+## 9. Success Criteria
 
 | Dimension | Metric | Target |
 |------|------|------|
@@ -664,9 +634,9 @@ All configuration is stored in the database, and changes take effect in real tim
 | **User Satisfaction** | Operations efficiency improvement | ≥ 50% |
 
 
-## 11. Appendix
+## 10. Appendix
 
-### 11.1 Glossary
+### 10.1 Glossary
 
 | Term | Description |
 |------|------|
@@ -682,7 +652,7 @@ All configuration is stored in the database, and changes take effect in real tim
 | **Hot Reload** | Configuration changes take effect without restarting the service |
 | **MFA (Multi-Factor Authentication)** | Multi-Factor Authentication; this system uses TOTP |
 
-### 11.2 Reference Documents
+### 10.2 Reference Documents
 
 | Document | Description |
 |------|------|
