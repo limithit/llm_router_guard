@@ -53,4 +53,8 @@ export default {
   'help.securityTopology': '面向调用方的错误信息不含上游供应商名（审计日志与管理员侧 [upstream] 日志仍保留）。',
   'help.securityTlsLabel': 'TLS / 反代',
   'help.securityTls': '内置为 HTTP；生产应前置 Nginx 终止 TLS，并将 TRUSTED_PROXIES 指向该代理。',
+  'help.starTitle': '项目地址',
+  'help.starBody': '本项目开源在 GitHub，基于 Apache-2.0 协议。如果对你有帮助，欢迎点个 Star 支持一下——也让更多人发现它。',
+  'help.starBtn': '在 GitHub 上 Star',
+  'help.starIssue': '提交 Issue / 反馈',
 };

@@ -1,8 +1,8 @@
 // ===== 使用帮助：网关对外对接说明 =====
 // 服务地址、端点、鉴权（两套 Key 的区分）、模型别名路由、调用示例、对外部署。
 import { Trans, useTranslation } from 'react-i18next';
-import { Alert, Card, Col, Row, Table, Tag, Typography } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, Row, Space, Table, Tag, Typography } from 'antd';
+import { GithubOutlined, QuestionCircleOutlined, StarFilled } from '@ant-design/icons';
 import PageContainer from '../components/PageContainer';
 
 const { Paragraph, Text } = Typography;
@@ -166,6 +166,40 @@ export default function Help() {
             </li>
           ))}
         </ul>
+      </Card>
+
+      <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
+        <Row align="middle" gutter={16}>
+          <Col flex="auto">
+            <Typography>
+              <GithubOutlined style={{ marginRight: 8, fontSize: 18, color: '#333' }} />
+              <Text strong>{t('help.starTitle')}</Text>
+            </Typography>
+            <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+              {t('help.starBody')}
+            </Paragraph>
+          </Col>
+          <Col flex="none">
+            <Space direction="vertical" align="end">
+              <Button
+                type="primary"
+                icon={<StarFilled />}
+                href="https://github.com/limithit/llm_router_guard"
+                target="_blank"
+              >
+                {t('help.starBtn')}
+              </Button>
+              <Button
+                type="link"
+                size="small"
+                href="https://github.com/limithit/llm_router_guard/issues"
+                target="_blank"
+              >
+                {t('help.starIssue')}
+              </Button>
+            </Space>
+          </Col>
+        </Row>
       </Card>
 
       <Card size="small" style={{ background: '#fafafa' }}>

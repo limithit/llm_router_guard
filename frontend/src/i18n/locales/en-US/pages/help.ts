@@ -53,4 +53,8 @@ export default {
   'help.securityTopology': 'Client-facing error messages do not expose upstream provider names (the audit log and server-side [upstream] log still retain them for admins).',
   'help.securityTlsLabel': 'TLS / reverse proxy',
   'help.securityTls': 'Built-in serves HTTP; in production front it with Nginx to terminate TLS and point TRUSTED_PROXIES at that proxy.',
+  'help.starTitle': 'Project Repository',
+  'help.starBody': 'This project is open-sourced on GitHub under the Apache-2.0 license. If you find it useful, a Star on GitHub helps others discover it — and costs you nothing.',
+  'help.starBtn': 'Star on GitHub',
+  'help.starIssue': 'Open an Issue / Feedback',
 };
