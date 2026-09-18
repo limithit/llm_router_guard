@@ -611,13 +611,10 @@ All configuration is stored in the database, and changes take effect in real tim
 
 | Risk | Impact | Probability | Mitigation Measures |
 |------|------|------|----------|
-| Insufficient front-end development resources | UI progress delay | Medium | Adopt mature Ant Design components; reuse open-source admin templates; consider hiring professional React developers |
 | Frequent changes to upstream model protocols | Adapters require continuous maintenance | Medium | Adapter pattern isolates changes; prioritize support for mainstream protocols |
 | High guardrail false positive rate | Affects normal business | Medium | Support flexible configuration of three actions; provide test tools in the UI |
 | Audit log data volume growth | Storage pressure | Medium | SQLite suitable for daily requests < 100k; provide automatic cleanup strategy |
 | High semantic review model latency | Affects user experience | Medium | Degrade to basic rules; support per-request granularity toggle |
-| UI configuration change concurrency conflicts | Configuration overwrites | Low | Database transaction isolation; optimistic locking mechanism |
-| React front-end and back-end embed integration | Complex build process | Low | Use standard go:embed; CI/CD automated build |
 
 
 ## 9. Success Criteria
