@@ -4,7 +4,7 @@
 
 轻量级、自托管、功能聚焦的 AI 网关平台，支持多协议统一接入（OpenAI Chat/Responses / Anthropic）、智能路由负载均衡、输入/输出双向护栏过滤、配额与速率限制、全链路审计日志、配置热加载及 TOTP MFA 管理后台。
 
-**技术栈**：Go 1.24（Gin + GORM）+ React 18（Ant Design 5.x + Vite 5）
+**技术栈**：Go 1.25（Gin + GORM）+ React 18（Ant Design 5.x + Vite 5）
 
 ## 快速开始
 
@@ -12,7 +12,7 @@
 
 ### 环境要求
 
-- Go >= 1.24
+- Go >= 1.25
 - Node.js >= 18  (仅构建前端使用；生产部署只需 Go 二进制)
 
 ### 本地开发
@@ -123,9 +123,8 @@ frontend/                         # React 前端
 
 ## 构建与部署
 
-CI：GitHub Actions（`.github/workflows/ci.yml`）——push/PR 到 `main`/`cluster` 自动执行
-后端 `gofmt/vet/test -race` → 前端 `tsc + vite build` → Docker 镜像构建（不推送）；
-托管在阿里云 Codeup 时 Flow 流水线按同序复用这三段命令即可。
+CI：GitHub Actions（`.github/workflows/ci.yml`）——push/PR 到 `master` 自动执行
+后端 `gofmt/vet/test -race` → 前端 `tsc + vite build` → Docker 镜像构建（不推送）。
 
 部署形态为**单进程**：一个 Go 二进制即整个运行时，在 :8080 同时对外提供管理 API、网关端点和前端 SPA，前端不需要 Nginx 或独立 Node 服务。
 
@@ -140,7 +139,7 @@ cd ../backend && go build -ldflags="-s -w" -o llm-router-guard ./cmd/server
 
 # 3. 运行（工作目录需含二进制与 web/dist；或用 FRONTEND_DIST 指向前端产物绝对路径）
 PORT=8080 DB_TYPE=postgresql DB_DSN="postgres://user:pass@host/gateway" \
-MASTER_KEY="your-strong-secret" ADMIN_PASSWORD="change-me" ./llm-router-guard
+MASTER_KEY="your-strong-secret" ./llm-router-guard
 ```
 
 > 部署目录结构：`llm-router-guard`（二进制）+ `web/dist/`（前端产物）。后端**未通过 `go:embed` 内嵌前端**，运行时从磁盘读取，因此 `web/dist` 不可缺失，否则访问 `/` 返回 404。
@@ -159,9 +158,9 @@ services:
     environment:
       - PORT=8080
       - DB_TYPE=sqlite
-      - JWT_SECRET=${JWT_SECRET:-replace-with-random-secret}
-      - MASTER_KEY=${MASTER_KEY:-replace-with-master-key}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - JWT_SECRET=${JWT_SECRET:?用 openssl rand -hex 32 生成}
+      - MASTER_KEY=${MASTER_KEY:?用 openssl rand -hex 32 生成，且与 JWT_SECRET 不同}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     volumes:
       - gateway-data:/app/data
 volumes:
@@ -307,11 +306,7 @@ volumes:
 
 > 前置 LB（Nginx/HAProxy/云 LB）轮询 `gateway-a:8080` / `gateway-b:8080`，探活 `GET /healthz`；LB 与网关间设置 `TRUSTED_PROXIES` 后客户端真实 IP 才会进入 API Key 的 IP 白名单判定。
 
-**多节点实测**：双实例（同机 18080/18082，PG 共库 + Redis）已验证——分布式限流全局 429、熔断跨实例 ≤1s 同步打开 + TTL 自动半开恢复、配置热载跨实例 ≤4s 传播、配额全局精确。可复跑脚本见 `deploy/`（`mn_redis.sh`、`mn_circuit.sh`、`multi_node_redis_test.py`、`multi_node_circuit_test.py`）。
-
-## 开发日志
-
-`docs/PROGRESS.md` 是按轮次记录的开发日志（仅中文，不翻译），记录迭代历史。
+**多节点实测**：双实例（同机 18080/18082，PG 共库 + Redis）已验证——分布式限流全局 429、熔断跨实例 ≤1s 同步打开 + TTL 自动半开恢复、配置热载跨实例 ≤4s 传播、配额全局精确。
 
 ## License
 

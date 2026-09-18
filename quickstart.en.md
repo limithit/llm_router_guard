@@ -9,7 +9,7 @@
 
 | Dependency | Version | Use |
 |------------|---------|-----|
-| Go | ≥ 1.24 | Build the backend (the only runtime process) |
+| Go | ≥ 1.25 | Build the backend (the only runtime process) |
 | Node.js | ≥ 18 | Only for building the frontend (production can skip this and use the pre-built `web/dist`) |
 | Docker | any | Optional, for one-shot compose |
 

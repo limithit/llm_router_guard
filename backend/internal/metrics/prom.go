@@ -1,4 +1,4 @@
-// prom.go Prometheus 文本出口（P2 #6）。
+// prom.go Prometheus 文本出口。
 // 设计约束：
 //   - 零第三方依赖：手写 Prometheus 文本格式 v0.0.4（/metrics 抓取的事实标准，
 //     Prometheus server / VictoriaMetrics / vmagent 均直接支持）；

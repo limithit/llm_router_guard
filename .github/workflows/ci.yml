@@ -1,13 +1,12 @@
-# CI（P2 #11）：后端测试 → 前端构建 → Docker 镜像构建（不推送）。
-# 仓库托管在阿里云 Codeup 时，Flow 流水线可复用同一组命令（见 README 构建与部署）。
-# 触发：推送到 main / cluster，或影响 CI 的 PR。
+# CI: backend test → frontend build → Docker image build (no push).
+# Triggers on push/PR to master.
 name: ci
 
 on:
   push:
-    branches: [main, cluster]
+    branches: [master]
   pull_request:
-    branches: [main, cluster]
+    branches: [master]
   workflow_dispatch:
 
 concurrency:

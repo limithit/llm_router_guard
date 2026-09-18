@@ -4,7 +4,7 @@
 
 A lightweight, self-hosted, feature-focused AI gateway platform. It offers unified multi-protocol ingress (OpenAI Chat / Responses / Anthropic), intelligent routing with weighted load balancing, bidirectional input/output guard filtering, quotas and rate limits, full-chain audit logging, hot-reloadable configuration, and a TOTP-MFA admin console.
 
-**Stack**: Go 1.24 (Gin + GORM) + React 18 (Ant Design 5.x + Vite 5)
+**Stack**: Go 1.25 (Gin + GORM) + React 18 (Ant Design 5.x + Vite 5)
 
 ## Quick Start
 
@@ -12,7 +12,7 @@ A lightweight, self-hosted, feature-focused AI gateway platform. It offers unifi
 
 ### Requirements
 
-- Go >= 1.24
+- Go >= 1.25
 - Node.js >= 18  (only for building the frontend; production deployments need only the Go binary)
 
 ### Local Development
@@ -123,7 +123,7 @@ Admin API base URL: `/api/admin/v1`. Gateway endpoints: `POST /v1/chat/completio
 
 ## Build & Deployment
 
-CI: GitHub Actions (`.github/workflows/ci.yml`) — on push/PR to `main`/`cluster` it runs backend `gofmt/vet/test -race` → frontend `tsc + vite build` → Docker image build (no push). When hosted on Alibaba Cloud Codeup, a Flow pipeline reuses the same three stages in order.
+CI: GitHub Actions (`.github/workflows/ci.yml`) — on push/PR to `master` it runs backend `gofmt/vet/test -race` → frontend `tsc + vite build` → Docker image build (no push).
 
 The deployment form is **single-process**: one Go binary is the entire runtime, exposing the admin API, gateway endpoints, and frontend SPA on :8080 simultaneously — the frontend needs no Nginx or standalone Node service.
 
@@ -138,7 +138,7 @@ cd ../backend && go build -ldflags="-s -w" -o llm-router-guard ./cmd/server
 
 # 3. Run (working directory must contain the binary and web/dist; or use FRONTEND_DIST to point at the absolute path of the frontend output)
 PORT=8080 DB_TYPE=postgresql DB_DSN="postgres://user:pass@host/gateway" \
-MASTER_KEY="your-strong-secret" ADMIN_PASSWORD="change-me" ./llm-router-guard
+MASTER_KEY="your-strong-secret" ./llm-router-guard
 ```
 
 > Deployment directory layout: `llm-router-guard` (binary) + `web/dist/` (frontend output). The backend does **not** `go:embed` the frontend; it reads from disk at runtime, so `web/dist` must not be missing, otherwise `GET /` returns 404.
@@ -157,9 +157,9 @@ services:
     environment:
       - PORT=8080
       - DB_TYPE=sqlite
-      - JWT_SECRET=${JWT_SECRET:-replace-with-random-secret}
-      - MASTER_KEY=${MASTER_KEY:-replace-with-master-key}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - JWT_SECRET=${JWT_SECRET:?generate with: openssl rand -hex 32}
+      - MASTER_KEY=${MASTER_KEY:?generate with: openssl rand -hex 32}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     volumes:
       - gateway-data:/app/data
 volumes:
@@ -305,11 +305,7 @@ volumes:
 
 > Put a front LB (Nginx / HAProxy / cloud LB) round-robining `gateway-a:8080` / `gateway-b:8080`, health-checking `GET /healthz`. After setting `TRUSTED_PROXIES` between the LB and the gateways, the client's real IP enters the API-key IP-whitelist check.
 
-**Multi-node, measured**: a dual-instance setup (same host, 18080/18082, shared PG + Redis) has been verified — distributed rate limiting 429s globally, breaker opens across instances within ≤1s with TTL-driven auto-half-open recovery, config hot-reload propagates across instances within ≤4s, quotas are globally precise. Re-runnable scripts live in `deploy/` (`mn_redis.sh`, `mn_circuit.sh`, `multi_node_redis_test.py`, `multi_node_circuit_test.py`).
-
-## Development Log
-
-`docs/PROGRESS.md` is the per-round development log (Chinese only). It is not translated; it records iteration history in Chinese.
+**Multi-node, measured**: a dual-instance setup (same host, 18080/18082, shared PG + Redis) has been verified — distributed rate limiting 429s globally, breaker opens across instances within ≤1s with TTL-driven auto-half-open recovery, config hot-reload propagates across instances within ≤4s, quotas are globally precise.
 
 ## License
 

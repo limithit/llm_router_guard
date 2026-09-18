@@ -1,4 +1,4 @@
-// auditws.go 实时审计 WebSocket 端点（P2 #5）。
+// auditws.go 实时审计 WebSocket 端点。
 //
 // GET /api/admin/v1/audit/ws?token=<JWT>
 //   - 浏览器 WebSocket 无法自定义 Authorization 头，token 走查询串；

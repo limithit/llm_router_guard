@@ -80,7 +80,7 @@ func main() {
 	mgr.Start(ctx)
 	al.Start(ctx)
 	qm.StartBackground(ctx, rl)
-	// 上游健康检查（P1 #3）：周期探测启用供应商，失败经熔断计数累计（多实例时 Redis 广播）。
+	// 上游健康检查：周期探测启用供应商，失败经熔断计数累计（多实例时 Redis 广播）。
 	// HEALTH_CHECK_SECONDS=0 可禁用。
 	util.SafeGo("health.Run", func() { health.New(gormDB, enc, bl).Run(ctx, time.Duration(cfg.HealthCheckSeconds)*time.Second) })
 

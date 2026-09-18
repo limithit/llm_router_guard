@@ -602,7 +602,7 @@ func (s *Server) forward(c *gin.Context, snap *runtime.Snapshot, clientProto ada
 		s.bl.RecordFailure(up.ProviderID, snap.Failover, err.Error())
 		return frRetry
 	}
-	// 链路追踪透传（P1 #1）：上游可凭此头回查网关审计（call_logs.request_id）
+	// 链路追踪透传：上游可凭此头回查网关审计（call_logs.request_id）
 	req.Header.Set("X-Request-ID", reqID)
 	req = req.WithContext(ctx)
 

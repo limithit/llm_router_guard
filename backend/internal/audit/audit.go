@@ -17,7 +17,7 @@ type Logger struct {
 	db    *gorm.DB
 	ch    chan *model.CallLog
 	clean func() time.Duration // 审计保留期
-	hub   *Hub                 // 实时广播中心（P2 #5 WebSocket 订阅者）
+	hub   *Hub                 // 实时广播中心（WebSocket 订阅者）
 }
 
 func NewLogger(gdb *gorm.DB, retention func() time.Duration) *Logger {

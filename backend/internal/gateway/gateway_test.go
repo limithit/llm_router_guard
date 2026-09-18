@@ -188,7 +188,7 @@ func TestResolveRequestID(t *testing.T) {
 	}
 }
 
-// TestForward_UpstreamReceivesRequestID 转发上游必须携带 X-Request-ID（P1 #1）。
+// TestForward_UpstreamReceivesRequestID 转发上游必须携带 X-Request-ID。
 func TestForward_UpstreamReceivesRequestID(t *testing.T) {
 	s := newTestServer()
 	s.httpClient = &http.Client{Timeout: 5 * time.Second} // newTestServer 不带 httpClient

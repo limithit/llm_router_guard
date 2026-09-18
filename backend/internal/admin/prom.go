@@ -1,4 +1,4 @@
-// prom.go Prometheus 抓取的 admin 侧适配（P2 #6）：
+// prom.go Prometheus 抓取的 admin 侧适配：
 // Server 实现 metrics.PromCollector，在抓取瞬间组装 SLB 健康行
 // （复用 slb.HealthList 语义：本地熔断 + Redis 共享打开状态）。
 

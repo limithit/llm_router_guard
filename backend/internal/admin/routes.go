@@ -27,7 +27,7 @@ func bodyLimit(n int64) gin.HandlerFunc {
 // Register 在 gin 实例上注册所有路由。
 func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
-	// Prometheus 抓取端点（P2 #6 / M-11）：默认保持开放以兼容朴素抓取配置，
+	// Prometheus 抓取端点：默认保持开放以兼容朴素抓取配置，
 	// 但一旦设置 METRICS_TOKEN 即强制 Bearer（常量时间比较）。
 	// 未设 token 时暴露面靠部署层（内网/LB 放行）——启动日志已提示。
 	metricsToken := os.Getenv("METRICS_TOKEN")
@@ -137,7 +137,7 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	api.GET("/audit/calls/export", s.AuthMiddleware(), s.exportCallLogs)
 	api.GET("/audit/operations", s.AuthMiddleware(), s.listOpLogs)
 	api.GET("/audit/operations/export", s.AuthMiddleware(), s.exportOpLogs)
-	// 实时调用审计流（P2 #5）：浏览器 WS 无法自定义 Authorization 头，token 走查询串，
+	// 实时调用审计流：浏览器 WS 无法自定义 Authorization 头，token 走查询串，
 	// 鉴权在升级前完成（401 不产生半开 WebSocket）。
 	api.GET("/audit/ws", s.auditWS)
 
