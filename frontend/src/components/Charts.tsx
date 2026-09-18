@@ -1,5 +1,5 @@
 /**
- * ECharts 图表封装（P2 #8）：趋势折线图 / 环形占比图。
+ * ECharts 图表封装：趋势折线图 / 环形占比图。
  * 组件 props 与旧自绘 SVG 版完全兼容（LineChart / DonutChart），页面零改动。
  * 按需注册（echarts/core）：仅折线 + 饼图 + 网格/提示/图例/标题，控制打包体积；
  * echarts 仅被懒加载页面（Dashboard / TokenStats）引用，随路由 chunk 按需加载。

@@ -12,7 +12,7 @@ import ChangePassword from './pages/ChangePassword';
 import NotFound from './pages/NotFound';
 
 /**
- * 路由级代码分割（P1 #4）：业务页面全部 React.lazy 懒加载，
+ * 路由级代码分割：业务页面全部 React.lazy 懒加载，
  * 按路由自动拆 chunk，减小首屏体积；Login/NotFound 为轻量页保持静态引入。
  */
 const Dashboard = lazy(() => import('./pages/Dashboard'));

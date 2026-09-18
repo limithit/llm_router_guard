@@ -305,7 +305,7 @@ User MFA status: `GET /users?page=&page_size=` → row `{ "id":1,"username":"adm
 
 ## 10. System Operations
 
-### 10.0 Prometheus Metrics Export (P2 #6)
+### 10.0 Prometheus Metrics Export
 `GET /metrics` (no JWT auth; restricting to the monitoring network segment is recommended) → `text/plain; version=0.0.4`.
 Metric prefix `gw_`:
 
@@ -320,7 +320,7 @@ Metric prefix `gw_`:
 | `gw_upstream_consecutive_failures{provider,protocol}` | gauge | Circuit breaker consecutive failure count |
 | `go_*` | — | Go runtime (heap/gc/goroutines/mutex, etc.) |
 
-### 10.0a Real-time Call Audit Stream (P2 #5)
+### 10.0a Real-time Call Audit Stream
 `GET /api/admin/v1/audit/ws?token=<JWT>` (WebSocket upgrade; browsers cannot set a custom Authorization header, so the token is passed via the query string; on auth failure, a 401 is returned before the upgrade).
 The server pushes one JSON-text frame for every call audit it persists (fields = model.CallLog JSON: `request_id / created_at / api_key_label / protocol / model_alias / upstream_provider / upstream_model / prompt_tokens / completion_tokens / latency_ms / status / blocked / block_category / block_reason`). The server sends a 30s ping keepalive; once the slow-consumer drop count reaches the threshold (512), it proactively closes with 1013, and the client reconnects to resume.
 

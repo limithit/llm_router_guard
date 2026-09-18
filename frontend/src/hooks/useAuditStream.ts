@@ -1,5 +1,5 @@
 /**
- * useAuditStream — 实时调用审计 WebSocket 订阅（P2 #5）。
+ * useAuditStream — 实时调用审计 WebSocket 订阅。
  * 后端：GET /api/admin/v1/audit/ws?token=<JWT>（服务端推送 model.CallLog JSON 帧）。
  * 特性：断线 3s 自动重连（页面挂载期间无限重试）、最多保留 max 条（新事件在前）。
  */

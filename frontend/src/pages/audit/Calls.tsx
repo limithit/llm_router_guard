@@ -193,7 +193,7 @@ export default function Calls() {
         </Button>
       </Space>
 
-      {/* 实时调用流（P2 #5：WebSocket 推送，暂停/清空） */}
+      {/* 实时调用流（WebSocket 推送，暂停/清空） */}
       <div style={{ marginBottom: 12 }}>
         <LiveAuditStream />
       </div>

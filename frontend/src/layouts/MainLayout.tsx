@@ -265,7 +265,7 @@ export default function MainLayout() {
         <Content style={{ padding: 16, background: '#f0f2f5', minWidth: 0 }}>
           <Breadcrumb style={{ marginBottom: 12 }} items={breadcrumbItems} />
           {/*
-            路由级代码分割（P1 #4）：Suspense 只包 Outlet —— 懒加载页面 chunk 加载期间
+            路由级代码分割：Suspense 只包 Outlet —— 懒加载页面 chunk 加载期间
             仅内容区显示 Spin，侧栏/顶栏保持挂载不闪；App.tsx 顶层另有全局兜底边界。
           */}
           <Suspense
