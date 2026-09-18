@@ -38,3 +38,4 @@ deploy/
 *.log
 backend/test_*.db
 backend/test_*.db-*
+/backend/mfa_test.err

@@ -103,6 +103,9 @@ export interface MfaEnableBody {
 
 export interface MfaEnableResult {
   recovery_codes: string[];
+  mfa_enabled?: boolean;
+  /** 绑定成功后签发的完整会话令牌（替代旧的 scope=mfa 受限令牌） */
+  token?: string;
 }
 
 export interface MfaDisableBody {

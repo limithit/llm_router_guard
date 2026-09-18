@@ -52,9 +52,11 @@ func (s *Server) unbindUserMfa(c *gin.Context) {
 		s.fail(c, 409, 40901, "该用户未绑定 MFA")
 		return
 	}
+	// 管理员主动解绑 = 解除该用户的全部 MFA 约束（含 per-user 强制要求），
+	// 否则解绑后 MFARequired 仍为 true → 下次登录又被要求绑 → 死循环。
 	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).Updates(map[string]any{
 		"mfa_secret": "", "mfa_enabled": false, "mfa_bound_at": nil,
-		"recovery_codes_json": "", "last_totp_step": 0})
+		"recovery_codes_json": "", "last_totp_step": 0, "mfa_required": false})
 	// SEC-13：被解绑者既有的全部会话立即作废（防止带 MFA 语义的旧 Token 继续通行）
 	s.invalidateSessions(u.ID)
 	s.recordOp(c, "mfa_unbind", "security", u.Username, gin.H{"mfa_enabled": true}, gin.H{"mfa_enabled": false})

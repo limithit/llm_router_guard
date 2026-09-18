@@ -74,9 +74,14 @@ export default function AccountSecurity() {
   const enableMutation = useMutation({
     mutationFn: (c: string) => accountMfaApi.enable({ code: c }),
     onSuccess: (res) => {
+      // 绑定成功后后端签发新的完整会话令牌（旧 scope=mfa 令牌已作废）。
+      // 必须先切换令牌，否则后续任何请求都会 401 → 用户被踢回登录页、恢复码没看完。
+      if (res.token) {
+        const cur = useAuthStore.getState();
+        if (cur.user) cur.setAuth(res.token, cur.user, '');
+      }
       setRecoveryCodes(res.recovery_codes);
       setStep(2);
-      invalidateStatus();
     },
     onError: () => undefined,
   });

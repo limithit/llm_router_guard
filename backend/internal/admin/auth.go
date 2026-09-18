@@ -373,8 +373,20 @@ func (s *Server) mfaEnable(c *gin.Context) {
 		"mfa_secret": encSecret, "mfa_enabled": true, "mfa_bound_at": &now,
 		"recovery_codes_json": marshalRecoveryHashed(hashed), "last_totp_step": 0,
 	})
+	// 绑定后旧 scope=mfa 令牌立即失效（中间件判定"已绑定→会话过期"），
+	// 同时签发新的完整会话令牌一并发回，前端切换后即可正常查看恢复码、继续操作。
+	s.invalidateSessions(uid)
+	token, err := auth.Issue(s.secret, uid, operatorOf(c))
+	if err != nil {
+		s.fail(c, http.StatusInternalServerError, 50001, "签发 Token 失败")
+		return
+	}
 	s.recordOp(c, "mfa_bind", "security", operatorOf(c), nil, nil)
-	s.ok(c, gin.H{"recovery_codes": plain})
+	s.ok(c, gin.H{
+		"recovery_codes": plain,
+		"mfa_enabled":    true,
+		"token":          token,
+	})
 }
 
 func (s *Server) mfaDisable(c *gin.Context) {
