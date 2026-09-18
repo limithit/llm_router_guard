@@ -18,10 +18,14 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// mfaStore MFA 短时效票据存储。Pop* 取出即作废（一次性）。
-// TTL 统一 5 分钟，替代原内存实现的 expiry 检查。
+// mfaStore MFA 短时效票据存储。
+//   - PeekLoginTicket 只读查看（不核销），供 MFA 验证码失败重试；
+//   - PopLoginTicket 取出即作废（一次性），仅在二次因素校验成功后调用。
+//
+// TTL 统一 5 分钟。
 type mfaStore interface {
 	SaveLoginTicket(token string, userID uint)
+	PeekLoginTicket(token string) (userID uint, ok bool)
 	PopLoginTicket(token string) (userID uint, ok bool)
 	SaveSetupSecret(uid uint, secret string)
 	PopSetupSecret(uid uint) (secret string, ok bool)
@@ -44,6 +48,20 @@ type memMFA struct {
 func (m *memMFA) SaveLoginTicket(token string, uid uint) {
 	m.expireStale(&m.login)
 	m.login.Store(token, mfaEntry{uid, time.Now().Add(mfaTicketTTL)})
+}
+
+// PeekLoginTicket 只读查看票据（不核销）：验证码输错时可重试，无需重新登录拿新票据。
+func (m *memMFA) PeekLoginTicket(token string) (uint, bool) {
+	v, ok := m.login.Load(token)
+	if !ok {
+		return 0, false
+	}
+	e := v.(mfaEntry)
+	if time.Now().After(e.exp) {
+		m.login.Delete(token)
+		return 0, false
+	}
+	return e.value.(uint), true
 }
 func (m *memMFA) PopLoginTicket(token string) (uint, bool) {
 	v, ok := m.login.LoadAndDelete(token)
@@ -128,6 +146,21 @@ func (r *redisMFA) SaveLoginTicket(token string, uid uint) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	r.rdb.Set(ctx, r.loginKey(token), strconv.FormatUint(uint64(uid), 10), mfaTicketTTL)
+}
+
+// PeekLoginTicket 只读查看（不删除）：验证码输错时可重试，无需重新登录。
+func (r *redisMFA) PeekLoginTicket(token string) (uint, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	v, err := r.rdb.Get(ctx, r.loginKey(token)).Result()
+	if err != nil || v == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint(n), true
 }
 func (r *redisMFA) PopLoginTicket(token string) (uint, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

@@ -80,7 +80,9 @@ func (s *Server) login(c *gin.Context) {
 			s.fail(c, http.StatusUnauthorized, 40102, "用户名或密码错误")
 			return
 		}
-		uid, ok := s.mfa().PopLoginTicket(req.MFAToken)
+		// Peek（不核销）：验证码输错时票据仍保留，用户可直接重试，无需重新登录。
+		// 此前用 Pop 导致第一次输错验证码就删掉票据，第二次正确的反被"票据已失效"挡住。
+		uid, ok := s.mfa().PeekLoginTicket(req.MFAToken)
 		if !ok {
 			s.fail(c, http.StatusUnauthorized, 40103, "MFA 票据已失效，请重新登录")
 			return
@@ -99,10 +101,13 @@ func (s *Server) login(c *gin.Context) {
 			ok2 = s.consumeRecoveryCAS(&u, req.RecoveryCode)
 		}
 		if !ok2 {
+			// 验证码错误：票据不核销，用户可在 TTL（5 分钟）内继续重试
 			s.onLoginFail(&u)
 			s.fail(c, http.StatusUnauthorized, 40103, "动态验证码或恢复码错误")
 			return
 		}
+		// 二次因素通过后才真正核销票据（防重放）
+		s.mfa().PopLoginTicket(req.MFAToken)
 		s.finishLoginOK(&u)
 		s.issueLogin(c, &u, sec)
 		return
