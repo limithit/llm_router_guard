@@ -131,6 +131,11 @@ func validateSecurity(sec *settings.Security) error {
 	if sec.GraceDays < 0 || sec.GraceDays > 365 {
 		return fmt.Errorf("宽限期需为 0-365 天")
 	}
+	// 「强制所有用户启用 MFA」本身即蕴含启用 MFA：把主开关一并置位，
+	// 避免出现「只开强制、不开主开关」的矛盾配置（此前该组合会静默失效，无任何提示）。
+	if sec.MFARequiredAll {
+		sec.MFAEnabled = true
+	}
 	return nil
 }
 

@@ -158,6 +158,7 @@ func (s *Server) Register(r *gin.Engine, gws *gateway.Server) {
 	api.POST("/users", s.AuthMiddleware(), s.createUser)
 	api.PUT("/users/:id/password", s.AuthMiddleware(), s.changeUserPassword)
 	api.PUT("/users/:id/role", s.AuthMiddleware(), s.changeUserRole)
+	api.PUT("/users/:id/mfa-required", s.AuthMiddleware(), s.setUserMFARequired)
 	api.DELETE("/users/:id", s.AuthMiddleware(), s.deleteUser)
 	api.POST("/users/:id/unbind-mfa", s.AuthMiddleware(), s.unbindUserMfa)
 	api.POST("/users/:id/unlock", s.AuthMiddleware(), s.unlockUser)

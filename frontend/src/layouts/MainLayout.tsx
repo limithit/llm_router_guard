@@ -58,9 +58,11 @@ export default function MainLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, clearAuth } = useAuthStore();
+  const { user, clearAuth, scope } = useAuthStore();
   const username = user?.username ?? 'admin';
   const path = location.pathname;
+  // 受限会话（scope=mfa）：尚未完成 MFA 绑定，隐藏全部导航，只留绑定引导页
+  const mfaRestricted = scope === 'mfa';
 
   /** 侧边树形菜单（PRD 4.1）：key 即路由路径，语言切换时随 t 重建 */
   const MENU: MenuItem[] = useMemo(
@@ -250,17 +252,24 @@ export default function MainLayout() {
             left: 0,
           }}
         >
-          <Menu
-            theme="dark"
-            mode="inline"
-            items={MENU}
-            selectedKeys={selectedKeys}
-            openKeys={openKeys}
-            onOpenChange={(keys) => setOpenKeys(keys)}
-            onClick={({ key }) => {
-              if (key.startsWith('/')) navigate(key);
-            }}
-          />
+          {mfaRestricted ? (
+            <div style={{ padding: '16px 20px', color: 'rgba(255,255,255,0.65)', fontSize: 13, lineHeight: 1.7 }}>
+              <LockOutlined style={{ fontSize: 20, display: 'block', marginBottom: 8, color: '#ffc53d' }} />
+              {t('menu.mfaRestricted')}
+            </div>
+          ) : (
+            <Menu
+              theme="dark"
+              mode="inline"
+              items={MENU}
+              selectedKeys={selectedKeys}
+              openKeys={openKeys}
+              onOpenChange={(keys) => setOpenKeys(keys)}
+              onClick={({ key }) => {
+                if (key.startsWith('/')) navigate(key);
+              }}
+            />
+          )}
         </Sider>
         <Content style={{ padding: 16, background: '#f0f2f5', minWidth: 0 }}>
           <Breadcrumb style={{ marginBottom: 12 }} items={breadcrumbItems} />

@@ -1,11 +1,12 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { App as AntApp, ConfigProvider, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { isLoggedIn } from './store/auth';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useAuthStore, type AuthScope } from './store/auth';
+import { authApi } from './api/endpoints';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -65,9 +66,40 @@ function RouteFallback() {
 }
 
 /** 登录守卫：未登录访问任何业务页 → /login */
+/**
+ * 会话守卫：登录态 + 受限会话（scope）强制引导。
+ *
+ * 后端对 scope=mfa / scope=pw 的令牌只放行白名单路由（中间件硬门禁），
+ * 但仅靠服务端会出现「外壳看起来正常、点哪都报错」的观感：
+ * 此前前端只在登录那一刻跳转一次，刷新页面后守卫即失效。
+ * 这里按持久化的 scope 做同步守卫，并用 /auth/me 回显的 scope 校正
+ * （例如已绑定 MFA 后旧 scope 需要清掉，或换标签页登录改变了会话）。
+ */
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  if (!isLoggedIn()) {
+  const { token, scope, setScope } = useAuthStore();
+  const location = useLocation();
+
+  const { data: me } = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: () => authApi.me(),
+    enabled: Boolean(token),
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (me) setScope((me.scope ?? '') as AuthScope);
+  }, [me, setScope]);
+
+  if (!token) {
     return <Navigate to="/login" replace />;
+  }
+  // 受限会话：除引导页外的任何路由都弹回去
+  if (scope === 'mfa' && location.pathname !== '/account/security') {
+    return <Navigate to="/account/security" replace />;
+  }
+  if (scope === 'pw' && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />;
   }
   return <>{children}</>;
 }

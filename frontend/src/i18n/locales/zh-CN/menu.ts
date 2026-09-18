@@ -28,6 +28,7 @@ export default {
   'menu.backup': '数据备份',
   'menu.accountSecurity': '个人安全设置',
   'menu.help': '使用帮助',
+  'menu.mfaRestricted': '当前为受限会话：请先在本页完成 MFA 绑定，完成后重新登录即可访问全部功能。',
   'menu.logout': '退出登录',
   'menu.account': '账户安全',
   'menu.language': '切换语言',

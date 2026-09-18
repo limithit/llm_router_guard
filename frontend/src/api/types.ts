@@ -48,8 +48,19 @@ export interface User {
   id: number;
   username: string;
   mfa_enabled: boolean;
+  role?: string;
   last_login_at?: string | null;
   created_at?: string | null;
+}
+
+/** /auth/me：会话自身状态（受限会话 scope=mfa/pw 用于前端守卫） */
+export interface MeResponse extends User {
+  role?: string;
+  mfa_required?: boolean;
+  must_bind_mfa?: boolean;
+  must_change_password?: boolean;
+  /** '' 完整会话 | 'mfa' 仅可绑定 MFA | 'pw' 仅可改密 */
+  scope?: string;
 }
 
 export interface LoginBody {
@@ -621,8 +632,13 @@ export interface AdminUserRow {
   username: string;
   role: string;
   mfa_enabled: boolean;
+  mfa_required: boolean;
   last_login_at?: string | null;
   locked: boolean;
+}
+
+export interface UserSetMfaRequiredBody {
+  mfa_required: boolean;
 }
 
 export interface UserCreateBody {

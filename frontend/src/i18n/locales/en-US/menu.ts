@@ -27,6 +27,7 @@ export default {
   'menu.backup': 'Backup',
   'menu.accountSecurity': 'Account Security',
   'menu.help': 'Help',
+  'menu.mfaRestricted': 'This is a restricted session: please complete MFA enrollment on this page first. After enrolling, log in again to access all features.',
   'menu.logout': 'Logout',
   'menu.account': 'Account Security',
   'menu.language': 'Language',

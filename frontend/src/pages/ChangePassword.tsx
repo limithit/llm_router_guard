@@ -78,9 +78,10 @@ export default function ChangePassword() {
             <Form.Item
               name="new_password"
               label={t('login.newPassword')}
+              extra={t('login.pwdPolicy')}
               rules={[
                 { required: true, message: t('login.newPasswordRequired') },
-                { min: 8, max: 72, message: t('login.newPasswordLen') },
+                { min: 10, max: 72, message: t('login.newPasswordLen') },
               ]}
             >
               <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />

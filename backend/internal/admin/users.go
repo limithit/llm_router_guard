@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 
+	"llmrouter/internal/auth"
 	"llmrouter/internal/model"
 )
 
@@ -15,6 +16,7 @@ type userRow struct {
 	Username    string  `json:"username"`
 	Role        string  `json:"role"`
 	MFAEnabled  bool    `json:"mfa_enabled"`
+	MFARequired bool    `json:"mfa_required"`
 	LastLoginAt *string `json:"last_login_at"`
 	Locked      bool    `json:"locked"`
 	CreatedAt   *string `json:"created_at,omitempty"`
@@ -28,7 +30,8 @@ func (s *Server) listUsers(c *gin.Context) {
 	s.db.Order("id").Offset((page - 1) * size).Limit(size).Find(&users)
 	out := make([]userRow, 0, len(users))
 	for _, u := range users {
-		row := userRow{ID: u.ID, Username: u.Username, Role: u.Role, MFAEnabled: u.MFAEnabled, Locked: u.IsLocked()}
+		row := userRow{ID: u.ID, Username: u.Username, Role: u.Role,
+			MFAEnabled: u.MFAEnabled, MFARequired: u.MFARequired, Locked: u.IsLocked()}
 		if u.LastLoginAt != nil {
 			t := u.LastLoginAt.Format("2006-01-02T15:04:05Z07:00")
 			row.LastLoginAt = &t
@@ -93,8 +96,8 @@ func (s *Server) createUser(c *gin.Context) {
 		s.fail(c, 400, 40001, "用户名须 1-64 字符")
 		return
 	}
-	if len(req.Password) < 8 {
-		s.fail(c, 400, 40001, "密码至少 8 位")
+	if err := auth.ValidatePassword(req.Password, username); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	forceChange := true
@@ -156,8 +159,8 @@ func (s *Server) changeUserPassword(c *gin.Context) {
 		s.fail(c, 400, 40001, "参数错误："+err.Error())
 		return
 	}
-	if len(req.Password) < 8 {
-		s.fail(c, 400, 40001, "密码至少 8 位")
+	if err := auth.ValidatePassword(req.Password, u.Username); err != nil {
+		s.fail(c, 400, 40001, err.Error())
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -247,5 +250,38 @@ func (s *Server) changeUserRole(c *gin.Context) {
 	// 角色变更即作废既有会话（新角色需要重新登录获取新 token）
 	s.invalidateSessions(u.ID)
 	s.recordOp(c, "update", "security", u.Username+"#role", gin.H{"role": oldRole}, gin.H{"role": role})
+	s.ok(c, nil)
+}
+
+// setUserMFARequiredReq 单用户强制 MFA 开关请求体。
+type setUserMFARequiredReq struct {
+	MFARequired bool `json:"mfa_required"`
+}
+
+// setUserMFARequired 单独要求某用户绑定 MFA（不影响其他用户）。
+// 开启后该用户下次登录即进入「仅可绑定」受限会话，必须完成绑定才能使用后台。
+func (s *Server) setUserMFARequired(c *gin.Context) {
+	id := c.Param("id")
+	var u model.AdminUser
+	if err := s.db.First(&u, id).Error; err != nil {
+		s.fail(c, 404, 40401, "用户不存在")
+		return
+	}
+	var req setUserMFARequiredReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		s.fail(c, 400, 40001, "参数错误："+err.Error())
+		return
+	}
+	// 不允许对自己关闭强制（避免管理员把自身要求摘掉绕过策略）；
+	// 允许对自己开启（先给自己加要求是合理的）。
+	if uid, ok := c.Get("userID"); ok && uid.(uint) == u.ID && !req.MFARequired && u.MFARequired {
+		s.fail(c, 409, 40901, "不可对自己取消「强制 MFA」，请由其他管理员操作")
+		return
+	}
+	s.db.Model(&model.AdminUser{}).Where("id = ?", u.ID).
+		UpdateColumn("mfa_required", req.MFARequired)
+	s.invalidateSessions(u.ID)
+	s.recordOp(c, "update", "security", u.Username+"#mfa_required",
+		gin.H{"mfa_required": u.MFARequired}, gin.H{"mfa_required": req.MFARequired})
 	s.ok(c, nil)
 }

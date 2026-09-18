@@ -18,6 +18,7 @@ import (
 
 	"llmrouter/internal/admin"
 	"llmrouter/internal/audit"
+	"llmrouter/internal/auth"
 	"llmrouter/internal/config"
 	"llmrouter/internal/crypto"
 	"llmrouter/internal/db"
@@ -203,8 +204,9 @@ func bootstrapAdmin(gdb *gorm.DB, cfg *config.Config) {
 	if pass == "" {
 		pass = crypto.RandomHex(12) // 一次性随机口令，打印后要求首登即改
 		generated = true
-	} else if len(pass) < 8 {
-		log.Fatalf("[bootstrap] ADMIN_PASSWORD must be at least 8 characters")
+	} else if err := auth.ValidatePassword(pass, cfg.AdminUser); err != nil {
+		// 口令强度策略（长度/字符类别/弱口令黑名单/不得含用户名）
+		log.Fatalf("[bootstrap] ADMIN_PASSWORD rejected: %v", err)
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
 	if err != nil {

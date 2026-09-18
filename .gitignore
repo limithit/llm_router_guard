@@ -1,4 +1,4 @@
-# Go binary
+﻿# Go binary
 bin/
 *.exe
 
@@ -19,7 +19,7 @@ frontend/package-lock.json
 Thumbs.db
 /backend/web/dist/
 
-# 本机 Go 构建缓存（沙箱内 GOCACHE 指向工作区时使用）
+# 鏈満 Go 鏋勫缓缂撳瓨锛堟矙绠卞唴 GOCACHE 鎸囧悜宸ヤ綔鍖烘椂浣跨敤锛?
 .gocache/
 .gopath/
 .e2e/
@@ -28,8 +28,13 @@ deploy/llm-router-guard-linux-amd64
 
 frontend/tsconfig.tsbuildinfo
 
-# 本地诊断/回归脚本（含硬编码本地凭据，不入库）
+# 鏈湴璇婃柇/鍥炲綊鑴氭湰锛堝惈纭紪鐮佹湰鍦板嚟鎹紝涓嶅叆搴擄級
 backend/test_quota.py
 
 # M-33: dev/E2E scratch scripts (contain local DSN creds, machine-specific) never belong in the repo
 deploy/
+
+# local MFA/DB test artifacts
+*.log
+backend/test_*.db
+backend/test_*.db-*

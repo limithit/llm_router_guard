@@ -21,11 +21,13 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
 } from 'antd';
 import {
   DeleteOutlined,
   KeyOutlined,
   PlusOutlined,
+  QuestionCircleOutlined,
   SaveOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
@@ -117,6 +119,17 @@ export default function SecuritySettingsPage() {
     mutationFn: userApi.unbindMfa,
     onSuccess: () => {
       message.success(t('security.unbindOk'));
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: () => undefined,
+  });
+
+  // 单用户强制 MFA（不影响其他用户）
+  const mfaRequiredMutation = useMutation({
+    mutationFn: ({ id, required }: { id: number; required: boolean }) =>
+      userApi.setMfaRequired(id, { mfa_required: required }),
+    onSuccess: (_d, v) => {
+      message.success(v.required ? t('security.mfaRequiredOnOk') : t('security.mfaRequiredOffOk'));
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
     onError: () => undefined,
@@ -220,6 +233,27 @@ export default function SecuritySettingsPage() {
               width: 110,
               render: (v: boolean) =>
                 v ? <Tag color="green">{t('security.mfaBound')}</Tag> : <Tag color="default">{t('security.mfaUnbound')}</Tag>,
+            },
+            {
+              // 单用户强制 MFA：只对个别高权限账户要求二次验证，不影响其他人
+              title: (
+                <Space size={4}>
+                  {t('security.colMfaRequired')}
+                  <Tooltip title={t('security.colMfaRequiredTip')}>
+                    <QuestionCircleOutlined style={{ color: '#8c8c8c' }} />
+                  </Tooltip>
+                </Space>
+              ),
+              dataIndex: 'mfa_required',
+              width: 130,
+              render: (v: boolean, row: AdminUserRow) => (
+                <Switch
+                  size="small"
+                  checked={v}
+                  loading={mfaRequiredMutation.isPending}
+                  onChange={(checked) => mfaRequiredMutation.mutate({ id: row.id, required: checked })}
+                />
+              ),
             },
             {
               title: t('security.colLock'),
@@ -343,9 +377,10 @@ export default function SecuritySettingsPage() {
           <Form.Item
             name="password"
             label={t('security.passwordLabel')}
+            extra={t('security.pwdPolicy')}
             rules={[
               { required: true, message: t('security.passwordReq') },
-              { min: 8, message: t('security.passwordMin') },
+              { min: 10, message: t('security.passwordMin') },
             ]}
           >
             <Input.Password />
@@ -400,9 +435,10 @@ export default function SecuritySettingsPage() {
           <Form.Item
             name="password"
             label={t('security.newPassword')}
+            extra={t('security.pwdPolicy')}
             rules={[
               { required: true, message: t('security.passwordReq') },
-              { min: 8, message: t('security.passwordMin') },
+              { min: 10, message: t('security.passwordMin') },
             ]}
           >
             <Input.Password />

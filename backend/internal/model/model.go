@@ -24,6 +24,9 @@ type AdminUser struct {
 	LastLoginAt       *time.Time `json:"last_login_at"`
 	// Role: "admin"（全权限）或 "viewer"（只读，仅允许 GET）。默认 "admin" 兼容存量用户。
 	Role string `gorm:"size:16;default:admin" json:"role"`
+	// MFARequired：仅该用户被要求绑定 MFA（与全局「强制所有用户」取或）。
+	// 用于只对少数高权限账户强制二次验证，而不牵连其他人。
+	MFARequired bool `gorm:"default:false" json:"mfa_required"`
 	// SEC-02：首启生成的随机口令登录后，必须先改密（改密前仅发 scope=pw 受限会话）。
 	MustChangePassword bool `json:"must_change_password"`
 	// SEC-13：此时刻之前签发的全部 JWT 作废（登出/改密/解绑 MFA 时置为 now）。

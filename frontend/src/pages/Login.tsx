@@ -42,7 +42,9 @@ export default function Login() {
     try {
       const res = await authApi.login(body);
       if ('token' in res && res.token) {
-        setAuth(res.token, res.user);
+        // 记录会话 scope：受限会话必须把用户按在引导页上（刷新后依然生效）
+        const scope = res.need_change_password ? 'pw' : res.need_bind_mfa ? 'mfa' : '';
+        setAuth(res.token, res.user, scope);
         if (res.need_change_password) {
           // SEC-02：受限会话（scope=pw），引导强制改密
           navigate('/change-password', { replace: true });

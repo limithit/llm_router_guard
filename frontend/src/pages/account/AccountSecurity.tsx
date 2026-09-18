@@ -1,7 +1,7 @@
 // ===== 个人账户 > 安全设置 (REQ-021) =====
 // MFA 自助绑定流程：setup 生成二维码 → 输入动态验证码 enable → 展示恢复码（仅一次）
 // 已绑定：显示状态 / 剩余恢复码 / 解绑；另含修改密码表单
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -24,6 +24,7 @@ import {
 import { CopyOutlined, SafetyOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { accountMfaApi, authApi } from '../../api/endpoints';
+import { useAuthStore } from '../../store/auth';
 import { fmtTime } from '../../utils/format';
 import type { MfaSetupResult } from '../../api/types';
 
@@ -37,6 +38,7 @@ export default function AccountSecurity() {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
+  const scope = useAuthStore((s) => s.scope);
 
   // ---- MFA 绑定流程状态 ----
   const [step, setStep] = useState(0); // 0 未开始 | 1 扫码 | 2 完成展示恢复码
@@ -101,12 +103,32 @@ export default function AccountSecurity() {
   });
 
   const bound = status?.enabled === true;
+  const mfaRestricted = scope === 'mfa';
+
+  // 受限会话（scope=mfa）：登录时已被要求绑定，直接进入扫码步骤，省去再点一次「开始绑定」
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!mfaRestricted || bound || autoStarted.current) return;
+    if (setupMutation.isPending || setup) return;
+    autoStarted.current = true;
+    setupMutation.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mfaRestricted, bound, setup, setupMutation.isPending]);
 
   return (
     <PageContainer
       title={t('acctSec.title')}
       description={t('acctSec.desc')}
     >
+      {mfaRestricted && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t('acctSec.forcedTitle')}
+          description={t('acctSec.forcedDesc')}
+        />
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={14}>
           <Card
@@ -253,9 +275,10 @@ export default function AccountSecurity() {
               <Form.Item
                 name="new_password"
                 label={t('acctSec.newPwd')}
+                extra={t('acctSec.pwdPolicy')}
                 rules={[
                   { required: true, message: t('acctSec.newPwdReq') },
-                  { min: 8, message: t('acctSec.newPwdMin') },
+                  { min: 10, message: t('acctSec.newPwdMin') },
                 ]}
               >
                 <Input.Password placeholder={t('acctSec.newPwdPh')} />

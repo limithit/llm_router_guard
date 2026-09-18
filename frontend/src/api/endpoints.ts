@@ -8,6 +8,7 @@ import type {
   UserCreateBody,
   UserChangePasswordBody,
   UserChangeRoleBody,
+  UserSetMfaRequiredBody,
   ApiKey,
   ApiKeyCreateBody,
   ApiKeyCreated,
@@ -44,6 +45,7 @@ import type {
   OpLogFilter,
   OpLogRow,
   OutputConfig,
+  MeResponse,
   PageData,
   PageParams,
   PiiRule,
@@ -76,7 +78,7 @@ import type {
 export const authApi = {
   login: (body: LoginBody) => http.post<LoginResult>('/auth/login', body),
   logout: () => http.post<null>('/auth/logout'),
-  me: () => http.get<User>('/auth/me'),
+  me: () => http.get<MeResponse>('/auth/me'),
   changePassword: (body: ChangePasswordBody) => http.put<null>('/auth/password', body),
 };
 
@@ -254,6 +256,8 @@ export const userApi = {
   create: (body: UserCreateBody) => http.post<{ id: number; username: string; role: string }>('/users', body),
   changePassword: (id: number, body: UserChangePasswordBody) => http.put<null>(`/users/${id}/password`, body),
   changeRole: (id: number, body: UserChangeRoleBody) => http.put<null>(`/users/${id}/role`, body),
+  setMfaRequired: (id: number, body: UserSetMfaRequiredBody) =>
+    http.put<null>(`/users/${id}/mfa-required`, body),
   remove: (id: number) => http.delete<null>(`/users/${id}`),
   unbindMfa: (id: number) => http.post<null>(`/users/${id}/unbind-mfa`),
   unlock: (id: number) => http.post<null>(`/users/${id}/unlock`),

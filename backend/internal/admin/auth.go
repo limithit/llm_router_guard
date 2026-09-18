@@ -24,6 +24,13 @@ import (
 
 func (s *Server) mfa() mfaStore { return s.mfaStateInstance }
 
+// mfaRequiredFor 是否需要 MFA：全局「强制所有用户」或该用户被单独要求（取或）。
+// 注意：这里只看 MFARequiredAll —— 「强制所有用户」本身即蕴含启用 MFA，
+// 此前要求 MFAEnabled && MFARequiredAll，导致只开「强制」不开主开关时静默失效。
+func mfaRequiredFor(requiredAll, userRequired bool) bool {
+	return requiredAll || userRequired
+}
+
 // dummyBcryptHash 用于「用户名不存在」路径的等时 bcrypt 比对（M-10：消除计时侧信道）。
 var dummyBcryptHash = func() []byte {
 	h, err := bcrypt.GenerateFromPassword([]byte("llm-router-guard:timing-equalizer"), bcrypt.DefaultCost)
@@ -116,8 +123,9 @@ func (s *Server) login(c *gin.Context) {
 		s.finishLoginOK(&u)
 	}
 
-	// 二级：MFA（已绑定且全局开启）
-	if sec.MFAEnabled && u.MFAEnabled {
+	// 二级：MFA —— 只要用户已绑定，登录就必须过二次因素（不再受全局开关影响，
+	// 否则「已绑定 MFA 但全局开关被关掉」会让已绑定的账户静默退回单因素登录）。
+	if u.MFAEnabled {
 		if req.TotpCode == "" && req.RecoveryCode == "" {
 			token := crypto.RandomHex(16)
 			s.mfa().SaveLoginTicket(token, u.ID)
@@ -181,8 +189,8 @@ func (s *Server) issueLogin(c *gin.Context, u *model.AdminUser, sec settings.Sec
 		s.issueScoped(c, u, "pw", gin.H{"need_change_password": true})
 		return
 	}
-	// SEC-09：全员 MFA 硬性要求 —— 未绑定者只发仅可绑定的受限会话
-	if sec.MFAEnabled && sec.MFARequiredAll && !u.MFAEnabled {
+	// SEC-09：MFA 硬性要求（全局强制 或 该用户被单独要求）—— 未绑定者只发仅可绑定的受限会话
+	if !u.MFAEnabled && mfaRequiredFor(sec.MFARequiredAll, u.MFARequired) {
 		s.issueScoped(c, u, "mfa", gin.H{"need_bind_mfa": true})
 		return
 	}
@@ -193,9 +201,10 @@ func (s *Server) issueLogin(c *gin.Context, u *model.AdminUser, sec settings.Sec
 	}
 	s.recordOp(c, "login", "auth", u.Username, nil, nil)
 	s.ok(c, gin.H{
-		"token":         token,
-		"user":          gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled},
-		"need_bind_mfa": sec.MFAEnabled && !u.MFAEnabled, // 仅提示性（非强制）
+		"token": token,
+		"user":  gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled, "role": u.Role},
+		// 与上面的强制条件保持一致（此前只判 MFAEnabled，会出现「提示要绑定但其实没强制」）
+		"need_bind_mfa": mfaRequiredFor(sec.MFARequiredAll, u.MFARequired) && !u.MFAEnabled,
 	})
 }
 
@@ -224,9 +233,27 @@ func (s *Server) me(c *gin.Context) {
 		s.fail(c, http.StatusNotFound, 40401, "用户不存在")
 		return
 	}
-	s.ok(c, gin.H{"id": u.ID, "username": u.Username, "mfa_enabled": u.MFAEnabled,
+	sec := s.securitySettings()
+	// must_bind_mfa/scope 让前端在「刷新页面」后仍能恢复受限会话守卫：
+	// scope=mfa 的令牌只能访问白名单路由，前端必须把用户按在绑定页上。
+	s.ok(c, gin.H{
+		"id": u.ID, "username": u.Username, "role": u.Role,
+		"mfa_enabled": u.MFAEnabled, "mfa_required": mfaRequiredFor(sec.MFARequiredAll, u.MFARequired),
+		"must_bind_mfa":        !u.MustChangePassword && !u.MFAEnabled && mfaRequiredFor(sec.MFARequiredAll, u.MFARequired),
+		"scope":                scopeOf(c),
 		"must_change_password": u.MustChangePassword,
-		"created_at":           u.CreatedAt, "last_login_at": u.LastLoginAt})
+		"created_at":           u.CreatedAt, "last_login_at": u.LastLoginAt,
+	})
+}
+
+// scopeOf 读取中间件写入的令牌 scope（"" 表示完整会话）。
+func scopeOf(c *gin.Context) string {
+	if v, ok := c.Get("scope"); ok {
+		if s, ok2 := v.(string); ok2 {
+			return s
+		}
+	}
+	return ""
 }
 
 func (s *Server) logout(c *gin.Context) {
@@ -245,11 +272,7 @@ func (s *Server) changePassword(c *gin.Context) {
 		s.fail(c, http.StatusBadRequest, 40001, "请求参数错误")
 		return
 	}
-	// M-09：下限 8；上限 72（bcrypt 输入界——超长口令会静默截断/此前产生空哈希）
-	if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
-		s.fail(c, http.StatusBadRequest, 40001, "新密码需为 8-72 字节")
-		return
-	}
+	// 长度/强度统一交给 auth.ValidatePassword（需先取到用户名，见下方）
 	uid := userIDOf(c)
 	var u model.AdminUser
 	if err := s.db.First(&u, uid).Error; err != nil {
@@ -258,6 +281,11 @@ func (s *Server) changePassword(c *gin.Context) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
 		s.fail(c, http.StatusUnauthorized, 40102, "原密码错误")
+		return
+	}
+	// 口令强度策略（长度/字符类别/弱口令黑名单/不得含用户名）+ bcrypt 72 字节上界
+	if err := auth.ValidatePassword(req.NewPassword, u.Username); err != nil {
+		s.fail(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)

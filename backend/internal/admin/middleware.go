@@ -46,12 +46,13 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 		var u struct {
 			ID                    uint
 			MFAEnabled            bool
+			MFARequired           bool
 			MustChangePassword    bool
 			SessionsInvalidBefore *time.Time
 			Role                  string
 		}
 		if err := s.db.Model(&model.AdminUser{}).
-			Select("id", "mfa_enabled", "must_change_password", "sessions_invalid_before", "role").
+			Select("id", "mfa_enabled", "mfa_required", "must_change_password", "sessions_invalid_before", "role").
 			First(&u, claims.UserID).Error; err != nil {
 			s.fail(c, http.StatusUnauthorized, 40101, "会话已失效，请重新登录")
 			c.Abort()
@@ -77,7 +78,9 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			}
 		case "mfa":
 			sec := s.securitySettings()
-			if !sec.MFAEnabled || !sec.MFARequiredAll || u.MFAEnabled {
+			// 要求来源可以是全局「强制所有用户」或该用户被单独要求；
+			// 一旦已绑定、或要求已被撤销，该受限会话立即失效（需重新登录）。
+			if u.MFAEnabled || !mfaRequiredFor(sec.MFARequiredAll, u.MFARequired) {
 				s.fail(c, http.StatusUnauthorized, 40101, "会话状态已变化，请重新登录")
 				c.Abort()
 				return
@@ -88,7 +91,7 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 		default:
-			// SEC-02：强制改密；SEC-09：全员 MFA —— 服务端硬性门禁（受限令牌由登录时签发）
+			// SEC-02：强制改密；SEC-09：MFA 要求 —— 服务端硬性门禁（受限令牌由登录时签发）
 			if u.MustChangePassword {
 				s.fail(c, http.StatusForbidden, 40302, "请先修改初始密码")
 				c.Abort()
@@ -96,7 +99,7 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			}
 			if !u.MFAEnabled {
 				sec := s.securitySettings()
-				if sec.MFAEnabled && sec.MFARequiredAll {
+				if mfaRequiredFor(sec.MFARequiredAll, u.MFARequired) {
 					s.fail(c, http.StatusForbidden, 40303, "请先完成 MFA 绑定")
 					c.Abort()
 					return
@@ -112,6 +115,8 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 		c.Set("operator", claims.Username)
 		c.Set("userID", claims.UserID)
 		c.Set("role", u.Role)
+		// scope 供 /auth/me 回显：前端据此在刷新后仍能恢复「受限会话」守卫
+		c.Set("scope", claims.Scope)
 		c.Next()
 	}
 }
