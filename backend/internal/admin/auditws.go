@@ -13,6 +13,7 @@ package admin
 import (
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -73,6 +74,20 @@ func (s *Server) auditWS(c *gin.Context) {
 	}
 	defer conn.Close()
 
+	// wsMu 保护 rw 的并发写：主循环（push/ping）与读泵（close 回复）
+	// 都会写 *bufio.ReadWriter，不加锁会触发 data race。
+	var wsMu sync.Mutex
+	wsWrite := func(opcode byte, payload []byte) error {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		return wsWriteFrame(rw, opcode, payload)
+	}
+	wsWriteClose := func(code uint16) error {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		return wsWriteCloseFrame(rw, code)
+	}
+
 	// 3) 先订阅广播中心，再发 101。
 	// 顺序很关键：101 一旦落 TCP，客户端即认为连接就绪并可触发审计写入；
 	// 若订阅后置，此窗口内的事件会静默丢失（push 型功能最忌讳的竞态）。
@@ -101,10 +116,10 @@ func (s *Server) auditWS(c *gin.Context) {
 			}
 			switch op {
 			case wsOpClose:
-				_ = wsWriteCloseFrame(rw, 1000)
+				_ = wsWriteClose(1000)
 				return
 			case wsOpPing:
-				if err := wsWriteFrame(rw, wsOpPong, payload); err != nil {
+				if err := wsWrite(wsOpPong, payload); err != nil {
 					return
 				}
 			}
@@ -123,15 +138,15 @@ loop:
 			if !ok {
 				break loop
 			}
-			if err := wsWriteFrame(rw, wsOpText, msg); err != nil {
+			if err := wsWrite(wsOpText, msg); err != nil {
 				break loop
 			}
 			if d := s.al.Broadcaster().Dropped() - dropBase; d >= wsSubscriberSlowLimit {
-				_ = wsWriteCloseFrame(rw, 1013) // 消费端失能：主动断开，前端重连即恢复
+				_ = wsWriteClose(1013) // 消费端失能：主动断开，前端重连即恢复
 				break loop
 			}
 		case <-ticker.C:
-			if err := wsWriteFrame(rw, wsOpPing, nil); err != nil {
+			if err := wsWrite(wsOpPing, nil); err != nil {
 				break loop
 			}
 		}
