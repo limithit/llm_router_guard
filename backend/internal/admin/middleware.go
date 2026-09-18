@@ -48,9 +48,10 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			MFAEnabled            bool
 			MustChangePassword    bool
 			SessionsInvalidBefore *time.Time
+			Role                  string
 		}
 		if err := s.db.Model(&model.AdminUser{}).
-			Select("id", "mfa_enabled", "must_change_password", "sessions_invalid_before").
+			Select("id", "mfa_enabled", "must_change_password", "sessions_invalid_before", "role").
 			First(&u, claims.UserID).Error; err != nil {
 			s.fail(c, http.StatusUnauthorized, 40101, "会话已失效，请重新登录")
 			c.Abort()
@@ -102,8 +103,15 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 				}
 			}
 		}
+		// RBAC：viewer 角色只允许 GET 方法（只读权限）。
+		if u.Role == "viewer" && c.Request.Method != "GET" {
+			s.fail(c, http.StatusForbidden, 40304, "只读用户无操作权限")
+			c.Abort()
+			return
+		}
 		c.Set("operator", claims.Username)
 		c.Set("userID", claims.UserID)
+		c.Set("role", u.Role)
 		c.Next()
 	}
 }

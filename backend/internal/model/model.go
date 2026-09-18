@@ -22,6 +22,8 @@ type AdminUser struct {
 	FailedLogins      int        `json:"-"`                  // 连续登录失败次数（含 MFA 错）
 	LockedUntil       *time.Time `json:"-"`                  // 锁定期
 	LastLoginAt       *time.Time `json:"last_login_at"`
+	// Role: "admin"（全权限）或 "viewer"（只读，仅允许 GET）。默认 "admin" 兼容存量用户。
+	Role string `gorm:"size:16;default:admin" json:"role"`
 	// SEC-02：首启生成的随机口令登录后，必须先改密（改密前仅发 scope=pw 受限会话）。
 	MustChangePassword bool `json:"must_change_password"`
 	// SEC-13：此时刻之前签发的全部 JWT 作废（登出/改密/解绑 MFA 时置为 now）。

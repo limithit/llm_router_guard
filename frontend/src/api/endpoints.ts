@@ -5,6 +5,9 @@
 import { asPage, downloadFile, http } from './client';
 import type {
   AdminUserRow,
+  UserCreateBody,
+  UserChangePasswordBody,
+  UserChangeRoleBody,
   ApiKey,
   ApiKeyCreateBody,
   ApiKeyCreated,
@@ -248,6 +251,10 @@ export const securityApi = {
 
 export const userApi = {
   list: (params: PageParams) => http.get<PageData<AdminUserRow>>('/users', params),
+  create: (body: UserCreateBody) => http.post<{ id: number; username: string; role: string }>('/users', body),
+  changePassword: (id: number, body: UserChangePasswordBody) => http.put<null>(`/users/${id}/password`, body),
+  changeRole: (id: number, body: UserChangeRoleBody) => http.put<null>(`/users/${id}/role`, body),
+  remove: (id: number) => http.delete<null>(`/users/${id}`),
   unbindMfa: (id: number) => http.post<null>(`/users/${id}/unbind-mfa`),
   unlock: (id: number) => http.post<null>(`/users/${id}/unlock`),
 };

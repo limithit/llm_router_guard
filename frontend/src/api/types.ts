@@ -619,9 +619,26 @@ export interface SecuritySettings {
 export interface AdminUserRow {
   id: number;
   username: string;
+  role: string;
   mfa_enabled: boolean;
   last_login_at?: string | null;
   locked: boolean;
+}
+
+export interface UserCreateBody {
+  username: string;
+  password: string;
+  role?: 'admin' | 'viewer';
+  force_change_password?: boolean;
+}
+
+export interface UserChangePasswordBody {
+  password: string;
+  force_change_password?: boolean;
+}
+
+export interface UserChangeRoleBody {
+  role: 'admin' | 'viewer';
 }
 
 // ============ 配置状态 (REQ-004A) ============

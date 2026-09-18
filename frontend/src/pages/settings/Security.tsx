@@ -1,7 +1,7 @@
 // ===== 安全设置 (REQ-020 / REQ-023) =====
 // MFA 全局配置：启用开关 / 强制所有用户 / 恢复码数量 / 宽限期（保存后热加载立即生效）
-// 用户 MFA 设备管理：查看所有用户 MFA 状态、强制解绑（记审计）、解锁账户
-import { useEffect } from 'react';
+// 用户管理：列表 / 创建 / 改密 / 改角色 / 删除 / 强制解绑 MFA / 解锁
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { keepPreviousData } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -12,27 +12,42 @@ import {
   Card,
   Divider,
   Form,
+  Input,
   InputNumber,
+  Modal,
   Popconfirm,
+  Select,
   Space,
   Switch,
   Table,
   Tag,
 } from 'antd';
-import { SaveOutlined } from '@ant-design/icons';
-import { useState } from 'react';
+import {
+  DeleteOutlined,
+  KeyOutlined,
+  PlusOutlined,
+  SaveOutlined,
+  UserAddOutlined,
+} from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { securityApi, userApi } from '../../api/endpoints';
 import { fmtTime } from '../../utils/format';
-import type { AdminUserRow, SecuritySettings } from '../../api/types';
+import type { AdminUserRow, SecuritySettings, UserCreateBody, UserChangePasswordBody } from '../../api/types';
 
 export default function SecuritySettingsPage() {
   const { t } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<SecuritySettings>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  // 弹窗状态
+  const [createOpen, setCreateOpen] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwdTarget, setPwdTarget] = useState<AdminUserRow | null>(null);
+  const [createForm] = Form.useForm<UserCreateBody>();
+  const [pwdForm] = Form.useForm<{ password: string; force_change_password: boolean }>();
 
   const { data, isLoading } = useQuery({
     queryKey: ['settings-security'],
@@ -55,6 +70,49 @@ export default function SecuritySettingsPage() {
     onError: () => undefined,
   });
 
+  const createMutation = useMutation({
+    mutationFn: (body: UserCreateBody) => userApi.create(body),
+    onSuccess: () => {
+      message.success(t('security.createOk'));
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setCreateOpen(false);
+      createForm.resetFields();
+    },
+    onError: () => undefined,
+  });
+
+  const pwdMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: UserChangePasswordBody }) =>
+      userApi.changePassword(id, body),
+    onSuccess: () => {
+      message.success(t('security.pwdOk'));
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setPwdOpen(false);
+      pwdForm.resetFields();
+      setPwdTarget(null);
+    },
+    onError: () => undefined,
+  });
+
+  const roleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: number; role: 'admin' | 'viewer' }) =>
+      userApi.changeRole(id, { role }),
+    onSuccess: () => {
+      message.success(t('security.roleOk'));
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: () => undefined,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => userApi.remove(id),
+    onSuccess: () => {
+      message.success(t('security.deleteOk'));
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: () => undefined,
+  });
+
   const unbindMutation = useMutation({
     mutationFn: userApi.unbindMfa,
     onSuccess: () => {
@@ -73,19 +131,37 @@ export default function SecuritySettingsPage() {
     onError: () => undefined,
   });
 
+  const roleTag = (role: string) =>
+    role === 'viewer' ? (
+      <Tag color="orange">{t('security.roleViewer')}</Tag>
+    ) : (
+      <Tag color="purple">{t('security.roleAdmin')}</Tag>
+    );
+
   return (
     <PageContainer
       title={t('security.title')}
       description={t('security.desc')}
       extra={
-        <Button
-          type="primary"
-          icon={<SaveOutlined />}
-          loading={saveMutation.isPending}
-          onClick={async () => saveMutation.mutate(await form.validateFields())}
-        >
-          {t('security.save')}
-        </Button>
+        <Space>
+          <Button
+            icon={<PlusOutlined />}
+            onClick={() => {
+              createForm.resetFields();
+              setCreateOpen(true);
+            }}
+          >
+            {t('security.addUser')}
+          </Button>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={saveMutation.isPending}
+            onClick={async () => saveMutation.mutate(await form.validateFields())}
+          >
+            {t('security.save')}
+          </Button>
+        </Space>
       }
     >
       <Card size="small" title={t('security.mfaCard')} loading={isLoading}>
@@ -117,11 +193,7 @@ export default function SecuritySettingsPage() {
               <InputNumber min={0} max={90} precision={0} style={{ width: 140 }} addonAfter={t('security.dayUnit')} />
             </Form.Item>
           </Space>
-          <Alert
-            type="info"
-            showIcon
-            message={t('security.totpTip')}
-          />
+          <Alert type="info" showIcon message={t('security.totpTip')} />
         </Form>
       </Card>
 
@@ -132,10 +204,16 @@ export default function SecuritySettingsPage() {
           rowKey="id"
           loading={usersQuery.isLoading}
           dataSource={usersQuery.data?.items ?? []}
-          scroll={{ x: 800 }}
+          scroll={{ x: 900 }}
           columns={[
             { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <Tag>{v}</Tag> },
-            { title: t('security.colUsername'), dataIndex: 'username', width: 160 },
+            { title: t('security.colUsername'), dataIndex: 'username', width: 140 },
+            {
+              title: t('security.colRole'),
+              dataIndex: 'role',
+              width: 100,
+              render: (v: string) => roleTag(v),
+            },
             {
               title: t('security.colMfa'),
               dataIndex: 'mfa_enabled',
@@ -146,7 +224,7 @@ export default function SecuritySettingsPage() {
             {
               title: t('security.colLock'),
               dataIndex: 'locked',
-              width: 100,
+              width: 90,
               render: (v: boolean) =>
                 v ? <Tag color="red">{t('security.locked')}</Tag> : <Tag color="blue">{t('security.normal')}</Tag>,
             },
@@ -155,9 +233,37 @@ export default function SecuritySettingsPage() {
               title: t('common.action'),
               key: 'action',
               fixed: 'right',
-              width: 220,
+              width: 360,
               render: (_: unknown, row: AdminUserRow) => (
-                <Space>
+                <Space size="small" wrap>
+                  <Button
+                    size="small"
+                    icon={<KeyOutlined />}
+                    onClick={() => {
+                      pwdForm.resetFields();
+                      setPwdTarget(row);
+                      setPwdOpen(true);
+                    }}
+                  >
+                    {t('security.changePwd')}
+                  </Button>
+                  <Popconfirm
+                    title={t('security.changeRoleTitle')}
+                    description={t('security.changeRoleConfirm', {
+                      username: row.username,
+                      role: t(row.role === 'viewer' ? 'security.roleAdmin' : 'security.roleViewer'),
+                    })}
+                    onConfirm={() =>
+                      roleMutation.mutate({
+                        id: row.id,
+                        role: row.role === 'viewer' ? 'admin' : 'viewer',
+                      })
+                    }
+                  >
+                    <Button size="small">
+                      {t('security.changeRole')}
+                    </Button>
+                  </Popconfirm>
                   <Popconfirm
                     title={t('security.unbindTitle')}
                     description={t('security.unbindConfirm', { username: row.username })}
@@ -179,6 +285,16 @@ export default function SecuritySettingsPage() {
                       {t('security.unlock')}
                     </Button>
                   </Popconfirm>
+                  <Popconfirm
+                    title={t('security.deleteTitle')}
+                    description={t('security.deleteConfirm', { username: row.username })}
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => deleteMutation.mutate(row.id)}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />}>
+                      {t('security.delete')}
+                    </Button>
+                  </Popconfirm>
                 </Space>
               ),
             },
@@ -196,6 +312,111 @@ export default function SecuritySettingsPage() {
           }}
         />
       </Card>
+
+      {/* 创建用户弹窗 */}
+      <Modal
+        title={
+          <span>
+            <UserAddOutlined style={{ marginRight: 8 }} />
+            {t('security.createUser')}
+          </span>
+        }
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        confirmLoading={createMutation.isPending}
+        onOk={async () => {
+          const values = await createForm.validateFields();
+          createMutation.mutate(values);
+        }}
+      >
+        <Form<UserCreateBody> form={createForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="username"
+            label={t('security.colUsername')}
+            rules={[
+              { required: true, message: t('security.usernameReq') },
+              { max: 64, message: t('security.usernameMax') },
+            ]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label={t('security.passwordLabel')}
+            rules={[
+              { required: true, message: t('security.passwordReq') },
+              { min: 8, message: t('security.passwordMin') },
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Form.Item name="role" label={t('security.colRole')} initialValue="admin">
+            <Select
+              options={[
+                { value: 'admin', label: t('security.roleAdmin') },
+                { value: 'viewer', label: t('security.roleViewer') },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="force_change_password"
+            label={t('security.forceChange')}
+            valuePropName="checked"
+            initialValue={true}
+            tooltip={t('security.forceChangeTooltip')}
+          >
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 改密弹窗 */}
+      <Modal
+        title={
+          <span>
+            <KeyOutlined style={{ marginRight: 8 }} />
+            {t('security.changePwdTitle')} — {pwdTarget?.username}
+          </span>
+        }
+        open={pwdOpen}
+        onCancel={() => {
+          setPwdOpen(false);
+          setPwdTarget(null);
+        }}
+        confirmLoading={pwdMutation.isPending}
+        onOk={async () => {
+          if (!pwdTarget) return;
+          const values = await pwdForm.validateFields();
+          pwdMutation.mutate({
+            id: pwdTarget.id,
+            body: {
+              password: values.password,
+              force_change_password: values.force_change_password ?? false,
+            },
+          });
+        }}
+      >
+        <Form layout="vertical" form={pwdForm} style={{ marginTop: 16 }}>
+          <Form.Item
+            name="password"
+            label={t('security.newPassword')}
+            rules={[
+              { required: true, message: t('security.passwordReq') },
+              { min: 8, message: t('security.passwordMin') },
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Form.Item
+            name="force_change_password"
+            label={t('security.forceChange')}
+            valuePropName="checked"
+            tooltip={t('security.forceChangeTooltip')}
+          >
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
     </PageContainer>
   );
 }
