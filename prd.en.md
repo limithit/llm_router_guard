@@ -72,11 +72,14 @@ Build a **lightweight, self-hosted, functionally focused, fully UI-driven config
 - Multi-database support (SQLite / PostgreSQL / MySQL)
 - RESTful management API (for UI invocation and external integration)
 
-**Not Included**:
-- User/tenant management system (initial release uses simple API Key authentication; enterprise SSO integration may be added later)
-- Billing/top-up/redemption code system
-- Online payment integration
-- WebAuthn/Passkey (to be supported in later iterations)
+**Positioning vs. NewAPI**:
+
+This system targets **enterprise intranet deployment** and deliberately stays "lean" — no C-side multi-tenant operations, no billing commercialization, just a unified enterprise AI gateway with security guardrails:
+
+- **No user/tenant management system**: NewAPI is built for multi-tenant operations — managing end-user registration, group hierarchies, and quota distribution. This system follows a "one enterprise, one instance" model: API Key authentication + admin console, with optional enterprise SSO later, but will never grow the tenant-registration/top-up/group-tree operations surface. Enterprises use it as a unified internal egress without the complexity and attack surface that an operations layer brings.
+- **No billing/top-up/redemption-code system**: NewAPI ships token top-ups, redemption codes, and metered billing. This system provides only quota and rate limiting (for ops governance, not billing) — no money flow, no invoices, lower deployment and maintenance cost.
+- **No online payment integration**: No third-party payment gateway; the codebase carries no payment credentials or callback-verification attack surface.
+- **WebAuthn/Passkey not yet supported**: The admin console is protected by TOTP MFA + enforced password policy (sufficient for internal enterprise use); Passkey is reserved for a later iteration.
 
 
 ## 2. User Roles and Use Cases
