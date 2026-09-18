@@ -15,6 +15,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Space,
   Steps,
@@ -221,6 +222,13 @@ export default function AccountSecurity() {
                   showIcon
                   message={t('acctSec.boundOk')}
                 />
+                <Alert
+                  type="error"
+                  showIcon
+                  message={t('acctSec.recoveryWarnTitle')}
+                  description={t('acctSec.recoveryWarnDesc')}
+                  style={{ marginBottom: 4 }}
+                />
                 <Card size="small" style={{ background: '#fafafa' }}>
                   <Space wrap>
                     {recoveryCodes.map((c) => (
@@ -239,9 +247,17 @@ export default function AccountSecurity() {
                 >
                   {t('acctSec.copyAll')}
                 </Button>
-                <Button type="primary" onClick={() => setStep(0)}>
-                  {t('acctSec.done')}
-                </Button>
+                <Popconfirm
+                  title={t('acctSec.doneConfirmTitle')}
+                  description={t('acctSec.doneConfirmDesc')}
+                  okText={t('acctSec.done')}
+                  cancelText={t('common.cancel')}
+                  onConfirm={() => setStep(0)}
+                >
+                  <Button type="primary">
+                    {t('acctSec.done')}
+                  </Button>
+                </Popconfirm>
               </Space>
             )}
 

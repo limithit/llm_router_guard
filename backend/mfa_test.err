@@ -1,0 +1,21 @@
+2026/09/18 14:46:27 [config] dotenv: loaded 3 var(s) from ..\.env (real env vars take precedence)
+2026/09/18 14:46:27 [security] WARNING: JWT_SECRET is a placeholder/default value (admin tokens would be forgeable by anyone who reads the docs). ALLOW_INSECURE_DEFAULTS=1 is set for local development — NEVER use this in production.
+2026/09/18 14:46:27 [security] WARNING: MASTER_KEY is a placeholder/default value (stored provider API keys would be decryptable by anyone who reads the docs). ALLOW_INSECURE_DEFAULTS=1 is set for local development — NEVER use this in production.
+2026/09/18 14:46:28 [bootstrap] created admin user: admin
+2026/09/18 14:46:28 [bootstrap] ONE-TIME admin password for "admin": 5742d84b5884e262008c97ce
+2026/09/18 14:46:28 [bootstrap] This password is shown once. Sign in and change it immediately (forced on first login).
+2026/09/18 14:46:28 [security] WARNING: /metrics is UNAUTHENTICATED (model inventory, traffic and token volumes). Set METRICS_TOKEN or restrict to internal network.
+2026/09/18 14:46:28 LLM Router Guard listening on :18081
+2026/09/18 14:47:08 [access] 200  POST   /api/admin/v1/auth/login  96.7317ms  127.0.0.1
+2026/09/18 14:47:08 [access] 401  PUT    /api/admin/v1/auth/password  0s  127.0.0.1
+2026/09/18 14:47:18 [access] 401  POST   /api/admin/v1/auth/login  86.605ms  127.0.0.1
+2026/09/18 14:47:18 [access] 401  PUT    /api/admin/v1/settings/security  0s  127.0.0.1
+2026/09/18 14:47:18 [access] 401  POST   /api/admin/v1/auth/logout  0s  127.0.0.1
+2026/09/18 14:47:30 [access] 200  POST   /api/admin/v1/auth/login  89.8222ms  127.0.0.1
+2026/09/18 14:47:30 [access] 401  POST   /api/admin/v1/auth/login  114.6042ms  127.0.0.1
+2026/09/18 14:47:41 [access] 200  POST   /api/admin/v1/auth/login  103.5065ms  127.0.0.1
+2026/09/18 14:47:41 [access] 200  PUT    /api/admin/v1/auth/password  174.5805ms  127.0.0.1
+2026/09/18 14:48:10 [access] 200  POST   /api/admin/v1/auth/login  152.7661ms  127.0.0.1
+2026/09/18 14:48:10 [access] 200  PUT    /api/admin/v1/settings/security  113.8712ms  127.0.0.1
+2026/09/18 14:48:10 [access] 403  POST   /api/admin/v1/auth/logout  9.4996ms  127.0.0.1
+2026/09/18 14:49:36 [access] 200  POST   /api/admin/v1/auth/login  94.9395ms  127.0.0.1

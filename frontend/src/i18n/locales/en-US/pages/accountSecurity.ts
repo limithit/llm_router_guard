@@ -45,4 +45,8 @@ export default {
   'acctSec.forcedTip': 'Note: if the admin enabled "Require MFA for All Users", or required this account specifically, users without MFA are guided to this page after login.',
   'acctSec.forcedTitle': 'MFA enrollment required',
   'acctSec.forcedDesc': 'The administrator requires this account to enroll a one-time-code (MFA) device. This session can only access this page; please enroll, then log in again.',
+  'acctSec.recoveryWarnTitle': 'Save these recovery codes now',
+  'acctSec.recoveryWarnDesc': 'These recovery codes are shown only once, right now. If you ever lose your TOTP device (phone lost/replaced), a recovery code is your only fallback — each code works exactly once. Copy them into a password manager or another safe place. You will not be able to view them again after leaving this page.',
+  'acctSec.doneConfirmTitle': 'Have you saved the recovery codes?',
+  'acctSec.doneConfirmDesc': 'Recovery codes cannot be shown again after you close this. If you have not saved them, click "Copy All" first.',
 };

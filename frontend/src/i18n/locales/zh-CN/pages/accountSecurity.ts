@@ -45,4 +45,8 @@ export default {
   'acctSec.forcedTip': '提示：若管理员开启了「强制所有用户启用 MFA」，或单独要求本账户绑定 MFA，未绑定用户登录后会被引导至本页。',
   'acctSec.forcedTitle': '需要先完成 MFA 绑定',
   'acctSec.forcedDesc': '管理员要求本账户启用动态验证码（MFA）。当前会话仅可访问本页，完成绑定后请重新登录。',
+  'acctSec.recoveryWarnTitle': '请立即保存以下恢复码',
+  'acctSec.recoveryWarnDesc': '这些恢复码仅在此次绑定 MFA 时显示一次。若丢失 TOTP 设备（手机丢失/换机），恢复码是你唯一的后路——每条用一次即失效。请复制保存到密码管理器或其他安全位置。关闭此页面后将无法再次查看。',
+  'acctSec.doneConfirmTitle': '确认已保存恢复码？',
+  'acctSec.doneConfirmDesc': '恢复码关闭后将无法再次查看。如未保存，请先点「复制全部」。',
 };
