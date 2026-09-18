@@ -13,6 +13,9 @@ import (
 )
 
 // 受限会话允许的路由（FullPath 模式）。pw：仅改密；mfa：仅绑定 MFA。
+// selfServicePaths 同时覆盖 pwScopePaths + mfaScopePaths —— 这些是「管理自己账户安全」
+// 的自助操作（改密 / 绑定解绑 MFA / 登出 / 个人信息），viewer 角色也必须放行，
+// 否则只读用户被要求强制 MFA 时会死锁（绑不了 MFA → 永远进不去后台）。
 var (
 	pwScopePaths = map[string]bool{
 		"/api/admin/v1/auth/me": true, "/api/admin/v1/auth/password": true, "/api/admin/v1/auth/logout": true,
@@ -22,6 +25,16 @@ var (
 		"/api/admin/v1/account/mfa/setup": true, "/api/admin/v1/account/mfa/enable": true,
 		"/api/admin/v1/account/mfa/status": true, "/api/admin/v1/account/mfa/disable": true,
 	}
+	selfServicePaths = func() map[string]bool {
+		m := make(map[string]bool, len(pwScopePaths)+len(mfaScopePaths))
+		for k := range pwScopePaths {
+			m[k] = true
+		}
+		for k := range mfaScopePaths {
+			m[k] = true
+		}
+		return m
+	}()
 )
 
 // AuthMiddleware 校验 Authorization: Bearer <JWT>，写入 operator/userID。
@@ -107,7 +120,9 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			}
 		}
 		// RBAC：viewer 角色只允许 GET 方法（只读权限）。
-		if u.Role == "viewer" && c.Request.Method != "GET" {
+		// 例外：账户自身安全管理（改密/绑定解绑 MFA/登出/个人信息）属于基本权利，
+		// 不受只读限制——否则 viewer 被要求强制 MFA 时会死锁（绑不了 → 永远进不去）。
+		if u.Role == "viewer" && c.Request.Method != "GET" && !selfServicePaths[c.FullPath()] {
 			s.fail(c, http.StatusForbidden, 40304, "只读用户无操作权限")
 			c.Abort()
 			return
