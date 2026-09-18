@@ -43,6 +43,40 @@ export default function Help() {
 
   return (
     <PageContainer title={t('help.title')} description={t('help.desc')}>
+      <Card size="small" style={{ marginBottom: 16, background: '#fffbe6', borderColor: '#ffe58f' }}>
+        <Row align="middle" gutter={16}>
+          <Col flex="auto">
+            <Typography>
+              <GithubOutlined style={{ marginRight: 8, fontSize: 18, color: '#333' }} />
+              <Text strong>{t('help.starTitle')}</Text>
+            </Typography>
+            <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+              {t('help.starBody')}
+            </Paragraph>
+          </Col>
+          <Col flex="none">
+            <Space direction="vertical" align="end">
+              <Button
+                type="primary"
+                icon={<StarFilled />}
+                href="https://github.com/limithit/llm_router_guard"
+                target="_blank"
+              >
+                {t('help.starBtn')}
+              </Button>
+              <Button
+                type="link"
+                size="small"
+                href="https://github.com/limithit/llm_router_guard/issues"
+                target="_blank"
+              >
+                {t('help.starIssue')}
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
+
       <Alert
         type="info"
         showIcon
@@ -166,40 +200,6 @@ export default function Help() {
             </li>
           ))}
         </ul>
-      </Card>
-
-      <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
-        <Row align="middle" gutter={16}>
-          <Col flex="auto">
-            <Typography>
-              <GithubOutlined style={{ marginRight: 8, fontSize: 18, color: '#333' }} />
-              <Text strong>{t('help.starTitle')}</Text>
-            </Typography>
-            <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
-              {t('help.starBody')}
-            </Paragraph>
-          </Col>
-          <Col flex="none">
-            <Space direction="vertical" align="end">
-              <Button
-                type="primary"
-                icon={<StarFilled />}
-                href="https://github.com/limithit/llm_router_guard"
-                target="_blank"
-              >
-                {t('help.starBtn')}
-              </Button>
-              <Button
-                type="link"
-                size="small"
-                href="https://github.com/limithit/llm_router_guard/issues"
-                target="_blank"
-              >
-                {t('help.starIssue')}
-              </Button>
-            </Space>
-          </Col>
-        </Row>
       </Card>
 
       <Card size="small" style={{ background: '#fafafa' }}>
