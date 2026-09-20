@@ -271,6 +271,8 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 			key = strings.TrimSpace(c.GetHeader("x-api-key"))
 		}
 		if key == "" {
+			log.Printf("[auth] 401 missing-key  path=%s  remote=%s",
+				c.Request.URL.Path, c.ClientIP())
 			clientError(c, proto, http.StatusUnauthorized,
 				"missing API key: use Authorization: Bearer sk-... or x-api-key", "authentication_error", "invalid_api_key")
 			c.Abort()
@@ -278,6 +280,12 @@ func (s *Server) AuthMiddleware() gin.HandlerFunc {
 		}
 		rec, ok := snap.APIKeys[crypto.Sha256Hex(key)]
 		if !ok || !rec.Enabled {
+			kp := key
+			if len(kp) > 12 {
+				kp = kp[:12]
+			}
+			log.Printf("[auth] 401 invalid-key  path=%s  key-prefix=%s...  hash=%s  snap-keys=%d",
+				c.Request.URL.Path, kp, crypto.Sha256Hex(key), len(snap.APIKeys))
 			clientError(c, proto, http.StatusUnauthorized,
 				"invalid or disabled API key", "authentication_error", "invalid_api_key")
 			c.Abort()
