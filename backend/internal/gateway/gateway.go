@@ -763,7 +763,12 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	}
 
 	var acc strings.Builder
+	var reasoning strings.Builder
 	var usage adapter.Usage
+	// 输出 token 计数 = content + reasoning（思维链也要计入用量）
+	completionTokens := func() int {
+		return tokens.Count(acc.String()) + tokens.Count(reasoning.String())
+	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	nextCheck := threshold
@@ -792,7 +797,7 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 			s.mx.RecordError(reqID, chunk.Err)
 			log.Printf("[stream] %s %s upstream error event: %s", up.ProviderName, up.UpstreamModel, chunk.Err)
 			// SEC-07：流中途失败也要按已产生用量结算（此前完全不计，反复制造失败流可免费消耗上游）
-			s.settleQuota(ap, int64(usage.Prompt)+int64(tokens.Count(acc.String())))
+			s.settleQuota(ap, int64(usage.Prompt)+int64(completionTokens()))
 			return frFatal
 		}
 		if chunk.Usage != nil {
@@ -805,6 +810,11 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 		if chunk.ReasoningDelta != "" {
 			_ = sw.Reasoning(chunk.ReasoningDelta)
+			// 思维链也要计入 token 用量：深思考模型（DeepSeek-V4 / GLM 等）的
+			// reasoning 往往占输出 token 的绝大部分，此前只数 content 导致
+			// completion_tokens 被低估一个数量级。reasoning 只用于计数，
+			// 不写入审计输出、也不送输出护栏（不检查思维链）。
+			reasoning.WriteString(chunk.ReasoningDelta)
 		}
 		for _, d := range chunk.ToolCallDeltas {
 			buf := toolCalls[d.ToolIndex]
@@ -855,7 +865,7 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 		ap.errMsg = err.Error()
 		ap.status = "error"
-		s.settleQuota(ap, int64(usage.Prompt)+int64(tokens.Count(acc.String()))) // SEC-07：截断流按已产生量结算
+		s.settleQuota(ap, int64(usage.Prompt)+int64(completionTokens())) // SEC-07：截断流按已产生量结算
 		return frFatal
 	}
 	if !sawFinish {
@@ -887,7 +897,7 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 	}
 
-	usage = estimateUsage(usage, ap.input, acc.String())
+	usage = estimateUsage(usage, ap.input, acc.String()+reasoning.String())
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
