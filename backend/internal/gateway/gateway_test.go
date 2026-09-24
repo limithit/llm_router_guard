@@ -17,6 +17,7 @@ import (
 	"llmrouter/internal/runtime"
 	"llmrouter/internal/settings"
 	"llmrouter/internal/slb"
+	"llmrouter/internal/tokens"
 )
 
 // newTestServer 构造一个仅满足网关测试需要的最小 Server。
@@ -243,5 +244,30 @@ func TestEstimateUsage_PreserveUpstream(t *testing.T) {
 	got := estimateUsage(u, "any input", "any output")
 	if got.Prompt != 42 || got.Completion != 17 {
 		t.Errorf("estimateUsage(%+v) = %+v, want {42,17} preserved", u, got)
+	}
+}
+
+// TestEstimateUsage_FallbackIncludesReasoning 上游未返回 usage（completion==0）时，
+// 回退估算必须把 content+reasoning 一起计入 completion，不能只数 content。
+// 回归保障：上游 completion_tokens 实测已含 reasoning（glm5.2: 1693==445+1248），
+// 故仅 completion==0 的回退路径才估算，且须含 reasoning。
+func TestEstimateUsage_FallbackIncludesReasoning(t *testing.T) {
+	content := "The answer is 9.9 is larger than 9.11."
+	reasoning := "Comparing 9.11 and 9.9: align decimals, 9.11 vs 9.90, 90 > 11 so 9.9 larger."
+	fullOutput := content + reasoning
+	contentOnly := tokens.Count(content)
+	fullCount := tokens.Count(fullOutput)
+	if fullCount <= contentOnly {
+		t.Fatalf("precondition: full(%d) should exceed content-only(%d)", fullCount, contentOnly)
+	}
+	// 上游没报 completion → 回退用 content+reasoning
+	got := estimateUsage(adapter.Usage{Prompt: 5, Completion: 0}, "input", fullOutput)
+	if got.Completion != fullCount {
+		t.Errorf("fallback completion = %d, want %d (content+reasoning)", got.Completion, fullCount)
+	}
+	// 上游报了非零 completion → 信任上游，不重复加 reasoning
+	got2 := estimateUsage(adapter.Usage{Prompt: 5, Completion: 1693}, "input", fullOutput)
+	if got2.Completion != 1693 {
+		t.Errorf("upstream completion = %d, want 1693 preserved (no double-count)", got2.Completion)
 	}
 }

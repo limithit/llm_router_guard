@@ -364,6 +364,7 @@ type auditParams struct {
 	alias                                      string
 	upstreamProvider, upstreamModel            string
 	input, output                              string
+	inputFull                                  string // 未截断的请求全文，仅用于 usage 回退估算
 	promptTokens, completionTokens             int
 	status, category, reason, errMsg, findings string
 	finishReason                               string
@@ -485,6 +486,7 @@ func (s *Server) Handle(clientProto adapter.Protocol) gin.HandlerFunc {
 		}
 		ap.findings = guard.FindingsJSON(allFindings)
 		ap.input = guard.MaskForLog(snap, cr.InputPlainText())
+		ap.inputFull = cr.InputPlainText() // 完整未截断，仅用于 usage 回退估算
 		if blockedReason != "" {
 			ap.status = "blocked"
 			ap.category = blockedCategory
@@ -721,12 +723,14 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 		}
 	}
 
-	usage := estimateUsage(cr.Usage, ap.input, cr.Content)
-	// 非流式：上游 completion_tokens 通常只含 content，不含 reasoning_content。
-	// 对深思考模型 reasoning 占输出 token 绝大部分，补加 reasoning 的 token 数。
-	if cr.Reasoning != "" {
-		usage.Completion += tokens.Count(cr.Reasoning)
-	}
+	// estimateUsage 的回退（上游未报 usage 时）必须用「完整」文本估算：
+	//   - input 用 ap.inputFull，而非 ap.input（后者是脱敏+截断到 4000 字符的
+	//     审计文本，长 prompt 会把 prompt_tokens 低估一个数量级）。
+	//   - output 含 content + reasoning_content：上游 completion_tokens 已含 reasoning
+	//     （实测 glm5.2 上游 completion=1693 == content445+reasoning1248），所以上游非零
+	//     时直接信任、不补加；仅当上游 completion==0 的回退路径，才用 content+reasoning 估算，
+	//     避免此前要么漏算 reasoning、要么对非零上游重复加 reasoning 的两个错误。
+	usage := estimateUsage(cr.Usage, ap.inputFull, cr.Content+cr.Reasoning)
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
@@ -770,8 +774,13 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	var acc strings.Builder
 	var reasoning strings.Builder
 	var usage adapter.Usage
-	// 输出 token 计数 = content + reasoning（思维链也要计入用量）
+	// completion 计数：上游已报非零 usage 时信任（其已含 reasoning，实测 glm5.2
+	// 上游 completion=1693==content445+reasoning1248）；上游为零时用本地 content+
+	// reasoning 估算，避免截断/漏算 reasoning。
 	completionTokens := func() int {
+		if usage.Completion > 0 {
+			return usage.Completion
+		}
 		return tokens.Count(acc.String()) + tokens.Count(reasoning.String())
 	}
 	scanner := bufio.NewScanner(resp.Body)
@@ -902,14 +911,9 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 	}
 
-	usage = estimateUsage(usage, ap.input, acc.String())
-	// 上游流式 usage 的 completion_tokens 通常只含 content，不含 reasoning。
-	// 对深思考模型（DeepSeek-V4 / GLM 等）reasoning 占输出 token 绝大部分，
-	// 上游返回了一个非零 completion 后 estimateUsage 就不会再估算，导致
-	// completion 被严重低估。这里把 reasoning 的 token 数补加到 completion。
-	if reasoning.Len() > 0 {
-		usage.Completion += tokens.Count(reasoning.String())
-	}
+	// 同非流式：回退估算用完整文本。上游 completion_tokens 已含 reasoning（实测），
+	// 故上游非零时信任、不补加；仅 completion==0 回退时才用 content+reasoning 估算。
+	usage = estimateUsage(usage, cr.InputPlainText(), acc.String()+reasoning.String())
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
