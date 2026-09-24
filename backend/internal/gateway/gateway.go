@@ -734,14 +734,20 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
+	// 审计输出文本含思维链（reasoning_content）：脱敏+截断到 4000 字符后落库，
+	// 便于排查模型行为；截断由 MaskForLog 统一处理。
+	auditOut := cr.Content
+	if cr.Reasoning != "" {
+		auditOut = "[reasoning]" + cr.Reasoning + "\n[answer]" + cr.Content
+	}
 	if len(cr.ToolCalls) > 0 {
 		toolText := mergeToolText(cr.ToolCalls)
 		usage.Completion += len(toolText) / 4 // 工具参数 token 粗估并入配额
 		cr.Usage = usage
 		ap.completionTokens = usage.Completion
-		ap.output = guard.MaskForLog(snap, cr.Content+" "+toolText)
+		ap.output = guard.MaskForLog(snap, auditOut+" "+toolText)
 	} else {
-		ap.output = guard.MaskForLog(snap, cr.Content)
+		ap.output = guard.MaskForLog(snap, auditOut)
 	}
 	ap.status = "ok"
 
@@ -917,7 +923,12 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
-		ap.output = guard.MaskForLog(snap, acc.String())
+		// 审计输出文本含思维链（reasoning_content）：脱敏+截断到 4000 字符后落库。
+		accStr := acc.String()
+		if reasoning.Len() > 0 {
+			accStr = "[reasoning]" + reasoning.String() + "\n[answer]" + accStr
+		}
+		ap.output = guard.MaskForLog(snap, accStr)
 	}
 	if ap.status == "" || ap.status == "error" && ap.errMsg == "" {
 		ap.status = "ok"
