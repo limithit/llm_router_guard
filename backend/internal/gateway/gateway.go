@@ -734,11 +734,12 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
-	// 审计输出文本含思维链（reasoning_content）：脱敏+截断到 4000 字符后落库，
-	// 便于排查模型行为；截断由 MaskForLog 统一处理。
-	auditOut := cr.Content
+	// 审计输出文本含思维链：reasoning 段走 5 万字节上限（基本完整留存），
+	// answer 段走 4000 上限；各自脱敏后拼接。便于排查模型行为。
+	auditOut := guard.MaskForLog(snap, cr.Content) // answer：4000
 	if cr.Reasoning != "" {
-		auditOut = "[reasoning]" + cr.Reasoning + "\n[answer]" + cr.Content
+		auditOut = "[reasoning]" + guard.MaskForLogLimit(snap, cr.Reasoning, 50000) +
+			"\n[answer]" + auditOut
 	}
 	if len(cr.ToolCalls) > 0 {
 		toolText := mergeToolText(cr.ToolCalls)
@@ -923,12 +924,14 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
-		// 审计输出文本含思维链（reasoning_content）：脱敏+截断到 4000 字符后落库。
-		accStr := acc.String()
+		// 审计输出文本含思维链：reasoning 段走 5 万字节上限（基本完整留存），
+		// answer 段走 4000；各自脱敏后拼接。
+		auditOut := guard.MaskForLog(snap, acc.String()) // answer：4000
 		if reasoning.Len() > 0 {
-			accStr = "[reasoning]" + reasoning.String() + "\n[answer]" + accStr
+			auditOut = "[reasoning]" + guard.MaskForLogLimit(snap, reasoning.String(), 50000) +
+				"\n[answer]" + auditOut
 		}
-		ap.output = guard.MaskForLog(snap, accStr)
+		ap.output = auditOut
 	}
 	if ap.status == "" || ap.status == "error" && ap.errMsg == "" {
 		ap.status = "ok"

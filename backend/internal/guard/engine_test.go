@@ -2,6 +2,7 @@ package guard
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"llmrouter/internal/model"
@@ -418,6 +419,25 @@ func TestMaskForLog_Truncation(t *testing.T) {
 	result := MaskForLog(snap, longInput)
 	if len(result) > 4100 { // 4000 + "...[truncated]"
 		t.Errorf("MaskForLog should truncate long input, got len=%d", len(result))
+	}
+}
+
+func TestMaskForLogLimit_ReasoningCeiling(t *testing.T) {
+	snap := makeSnap(nil, nil, nil)
+	// 思维链 6 万字节：应截断到 5 万 + 标记
+	long := strings.Repeat("思", 60000/3) // 中文 3 字节/字符 → ~60000 字节
+	got := MaskForLogLimit(snap, long, 50000)
+	if len(got) > 50100 {
+		t.Errorf("MaskForLogLimit(50000) len=%d, want <= 50100", len(got))
+	}
+	if !strings.HasSuffix(got, "...[truncated]") {
+		t.Errorf("MaskForLogLimit(50000) should end with truncation marker, got suffix len=%d", len(got))
+	}
+	// 最终回答仍走默认 4000
+	short := strings.Repeat("a", 3000)
+	gotShort := MaskForLog(snap, short)
+	if len(gotShort) != 3000 {
+		t.Errorf("MaskForLog short len=%d, want 3000", len(gotShort))
 	}
 }
 

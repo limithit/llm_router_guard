@@ -178,8 +178,15 @@ func ApplyOutputStrategy(snap *runtime.Snapshot, vd Verdict) (string, bool) {
 	}
 }
 
-// MaskForLog 审计日志脱敏（NFR-009）：所有 mask 类 PII 规则替换 + 截断。
+// MaskForLog 审计日志脱敏（NFR-009）：所有 mask 类 PII 规则替换 + 截断到 4000 字节。
 func MaskForLog(snap *runtime.Snapshot, text string) string {
+	return MaskForLogLimit(snap, text, 4000)
+}
+
+// MaskForLogLimit 同 MaskForLog，但截断上限可调。思维链（reasoning_content）
+// 走 5 万字节上限以基本完整留存排查价值；最终回答仍走默认 4000。
+// limit<=0 表示不截断（仅脱敏）。
+func MaskForLogLimit(snap *runtime.Snapshot, text string, limit int) string {
 	out := text
 	for _, r := range snap.PIIRules {
 		if r.Re != nil {
@@ -190,8 +197,8 @@ func MaskForLog(snap *runtime.Snapshot, text string) string {
 			out = r.Re.ReplaceAllString(out, repl)
 		}
 	}
-	if len(out) > 4000 {
-		out = out[:4000] + "...[truncated]"
+	if limit > 0 && len(out) > limit {
+		out = out[:limit] + "...[truncated]"
 	}
 	return out
 }
