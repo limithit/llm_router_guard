@@ -44,6 +44,7 @@ export default function GeneralSettings() {
         call_audit_enabled: data.call_audit_enabled,
         call_audit_only_errors: data.call_audit_only_errors,
         call_audit_sampling: data.call_audit_sampling,
+        log_reasoning: data.log_reasoning,
       });
     }
   }, [data, form]);
@@ -141,6 +142,14 @@ export default function GeneralSettings() {
           rules={[{ required: true, message: t('general.auditSamplingReq') }]}
         >
           <InputNumber min={1} max={1000} precision={0} style={{ width: 200 }} addonAfter="1/N" />
+        </Form.Item>
+        <Form.Item
+          name="log_reasoning"
+          label={t('general.logReasoning')}
+          valuePropName="checked"
+          tooltip={t('general.logReasoningTooltip')}
+        >
+          <Switch />
         </Form.Item>
         <Form.Item
           name="hot_reload_seconds"

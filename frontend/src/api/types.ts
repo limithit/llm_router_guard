@@ -567,6 +567,7 @@ export interface SystemSettings {
   call_audit_enabled: boolean;
   call_audit_only_errors: boolean;
   call_audit_sampling: number;
+  log_reasoning: boolean;
   /** 只读：仅启动参数生效 */
   listen_port: number;
   listen_port_note: string;
@@ -582,6 +583,7 @@ export interface SystemSettingsInput {
   call_audit_enabled: boolean;
   call_audit_only_errors: boolean;
   call_audit_sampling: number;
+  log_reasoning: boolean;
 }
 
 // ============ API Key (REQ-002) ============

@@ -734,10 +734,10 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
-	// 审计输出文本含思维链：reasoning 段走 5 万字节上限（基本完整留存），
-	// answer 段走 4000 上限；各自脱敏后拼接。便于排查模型行为。
+	// 审计输出文本：log_reasoning 开启时含思维链（reasoning 段 5 万字节上限），
+	// 关闭时只含最终回答（4000 上限）。token 计数始终含 reasoning，不受此开关影响。
 	auditOut := guard.MaskForLog(snap, cr.Content) // answer：4000
-	if cr.Reasoning != "" {
+	if snap.General.LogReasoning && cr.Reasoning != "" {
 		auditOut = "[reasoning]" + guard.MaskForLogLimit(snap, cr.Reasoning, 50000) +
 			"\n[answer]" + auditOut
 	}
@@ -924,10 +924,9 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
-		// 审计输出文本含思维链：reasoning 段走 5 万字节上限（基本完整留存），
-		// answer 段走 4000；各自脱敏后拼接。
+		// log_reasoning 开启时含思维链（reasoning 段 5 万字节上限），关闭时只含回答。
 		auditOut := guard.MaskForLog(snap, acc.String()) // answer：4000
-		if reasoning.Len() > 0 {
+		if snap.General.LogReasoning && reasoning.Len() > 0 {
 			auditOut = "[reasoning]" + guard.MaskForLogLimit(snap, reasoning.String(), 50000) +
 				"\n[answer]" + auditOut
 		}

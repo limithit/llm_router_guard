@@ -25,6 +25,9 @@ type General struct {
 	CallAuditEnabled    bool `json:"call_audit_enabled"`
 	CallAuditOnlyErrors bool `json:"call_audit_only_errors"`
 	CallAuditSampling   int  `json:"call_audit_sampling"`
+	// 思维链（reasoning_content）写入审计 output_text：默认关闭（占库高，仅调试时开）。
+	// 关闭时 output_text 只含最终回答；token 计数始终含 reasoning，不受此开关影响。
+	LogReasoning bool `json:"log_reasoning"`
 }
 
 func DefaultGeneral() General {

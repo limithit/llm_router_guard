@@ -23,6 +23,8 @@ export default {
   'general.auditSampling': '成功调用采样',
   'general.auditSamplingTooltip': '1=全记；N>1=成功调用按 1/N 概率记录（失败/拦截始终全记）。',
   'general.auditSamplingReq': '请输入采样率',
+  'general.logReasoning': '记录思维链',
+  'general.logReasoningTooltip': '开启后调用日志的输出文本会包含模型思维链（reasoning_content），占用数据库较高，建议仅在排查模型行为时临时开启；关闭时只记录最终回答。Token 用量统计不受此开关影响（始终计入思维链）。',
   'general.hotReload': '热加载生效时间',
   'general.hotReloadTooltip': '配置变更后最长等待秒数；实时触发通常立即生效，该值为轮询兜底间隔（REQ-004）',
   'general.listenPort': '网关监听端口',

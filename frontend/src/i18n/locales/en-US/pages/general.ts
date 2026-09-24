@@ -23,6 +23,8 @@ export default {
   'general.auditSampling': 'Successful Call Sampling',
   'general.auditSamplingTooltip': '1 = record all; N>1 = record successful calls with 1/N probability (failures/blocks always recorded).',
   'general.auditSamplingReq': 'Please enter sampling rate',
+  'general.logReasoning': 'Log Reasoning Chain',
+  'general.logReasoningTooltip': 'When on, the call log output_text includes the model reasoning chain (reasoning_content); high DB cost, recommended only for temporary debugging. When off, only the final answer is recorded. Token usage accounting always counts reasoning regardless of this switch.',
   'general.hotReload': 'Hot Reload Effect Time',
   'general.hotReloadTooltip': 'Max wait seconds after a config change; real-time triggers usually apply immediately, this value is the polling fallback (REQ-004)',
   'general.listenPort': 'Gateway Listen Port',
