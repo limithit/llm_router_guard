@@ -722,6 +722,11 @@ func (s *Server) forwardBuffered(c *gin.Context, snap *runtime.Snapshot, clientP
 	}
 
 	usage := estimateUsage(cr.Usage, ap.input, cr.Content)
+	// 非流式：上游 completion_tokens 通常只含 content，不含 reasoning_content。
+	// 对深思考模型 reasoning 占输出 token 绝大部分，补加 reasoning 的 token 数。
+	if cr.Reasoning != "" {
+		usage.Completion += tokens.Count(cr.Reasoning)
+	}
 	cr.Usage = usage
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = cr.FinishReason
@@ -897,7 +902,14 @@ func (s *Server) forwardStream(c *gin.Context, snap *runtime.Snapshot, clientPro
 		}
 	}
 
-	usage = estimateUsage(usage, ap.input, acc.String()+reasoning.String())
+	usage = estimateUsage(usage, ap.input, acc.String())
+	// 上游流式 usage 的 completion_tokens 通常只含 content，不含 reasoning。
+	// 对深思考模型（DeepSeek-V4 / GLM 等）reasoning 占输出 token 绝大部分，
+	// 上游返回了一个非零 completion 后 estimateUsage 就不会再估算，导致
+	// completion 被严重低估。这里把 reasoning 的 token 数补加到 completion。
+	if reasoning.Len() > 0 {
+		usage.Completion += tokens.Count(reasoning.String())
+	}
 	ap.promptTokens, ap.completionTokens = usage.Prompt, usage.Completion
 	ap.finishReason = finishReason
 	if ap.output == "" {
